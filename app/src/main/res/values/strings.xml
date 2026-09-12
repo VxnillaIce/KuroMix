@@ -1,0 +1,21 @@
+<resources>
+    <string name="app_name">KuroMix</string>
+    <string name="status_activated">Activated</string>
+    <string name="status_restart_scope">Activated, restart scope required</string>
+    <string name="status_not_activated">Not Activated</string>
+    <string name="xposed_api_version">API %d</string>
+
+    <string-array name="xposed_scope">
+        <item>com.kuromify.kuromix</item>
+        <item>android</item>
+        <item>com.android.systemui</item>
+        <item>com.xiaomi.subscreencenter</item>
+        <item>com.miui.miinput</item>
+        <item>com.miui.securitycore</item>
+        <item>com.android.settings</item>
+        <item>com.android.nfc</item>
+        <item>com.miui.tsmclient</item>
+        <item>com.unionpay.tsmservice.mi</item>
+        <item>com.miui.nextpay</item>
+    </string-array>
+</resources>

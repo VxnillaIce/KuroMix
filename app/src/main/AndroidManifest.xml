@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Root-driven task/display management, no runtime prompt needed since
+         everything privileged goes through the `su` shell via libsu. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application
+        android:name=".KuroMix"
+        android:allowBackup="false"
+        android:icon="@drawable/kuromify_logo"
+        android:label="@string/app_name"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <!-- Marks this APK as an LSPosed/Xposed module -->
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="KuroMix: keep-alive + rear display hooks for HyperOS" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="93" />
+        <!-- LSPosed scope: this app itself, plus system_server / SystemUI
+             for the keep-alive + rear-display-center hooks. Configure the
+             actual scope inside the LSPosed Manager app. -->
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/xposed_scope" />
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- kuromix://switch?pkg=<packageName> for Tasker/MacroDroid/shortcuts -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="kuromix" android:host="switch" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".service.RearDisplayService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false" />
+
+        <service
+            android:name=".service.MirrorTileService"
+            android:label="Mirror to Rear"
+            android:icon="@drawable/kuromify_logo"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".service.UnmirrorTileService"
+            android:label="Unmirror from Rear"
+            android:icon="@drawable/kuromify_logo"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".service.MirrorMonitorService"
+            android:exported="false" />
+
+        <receiver
+            android:name=".receiver.KuroMixReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kuromify.kuromix.ACTION_STOP_MIRROR" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+</manifest>
