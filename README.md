@@ -1,6 +1,6 @@
 # KuroMix
 
-**KuroMix** is an advanced HyperOS enhancement utility designed to unlock the full potential of Xiaomi devices with dual displays (like the Mix Flip/Fold series) and provide deep system remapping for global users.
+**KuroMix** is an advanced HyperOS enhancement utility designed to unlock the full potential of Xiaomi devices with dual displays (like Xioami 17 Pro/Pro Max) and provide deep system remapping for global users.
 
 Combining **Root-level shell access** with an **LSPosed/Xposed module**, KuroMix bridges the gap between official limitations and a truly "global" user experience.
 
@@ -65,4 +65,4 @@ Combining **Root-level shell access** with an **LSPosed/Xposed module**, KuroMix
 
 ## ⚖️ Disclaimer
 
-KuroMix is a powerful system modification tool. Use it at your own risk. The developer is not responsible for any damage, data loss, or bricked devices resulting from the use of this software.
+KuroMix is a powerful system modification tool. Use it at your own risk. The developer is not responsible for any damage, data loss, bricked devices resulting from the use of this software or even losing Mixue Coupon Code.
