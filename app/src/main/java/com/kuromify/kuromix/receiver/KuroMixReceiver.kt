@@ -14,22 +14,27 @@ import kotlinx.coroutines.launch
  * Handles broadcasts for KuroMix, specifically the "Stop Mirroring" action from notifications.
  */
 class KuroMixReceiver : BroadcastReceiver() {
+
+    companion object {
+        const val ACTION_STOP_MIRROR = "com.kuromify.kuromix.ACTION_STOP_MIRROR"
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == SuperIslandManager.ACTION_STOP) {
+        if (intent.action == ACTION_STOP_MIRROR) {
             CoroutineScope(Dispatchers.IO).launch {
                 // Find the task on the rear display (ID: 1) and pull it back
                 val taskId = RootShell.getTaskIdOnDisplay(1)
                 if (taskId != null) {
                     RootShell.moveTaskToDisplay(taskId, 0)
                 }
-                
+
                 // Cleanup: reset display and stop monitor
                 RootShell.resetDisplayArea(1)
                 RootShell.setDisplayDpi(1, null)
-                
+
                 val monitorIntent = Intent(context, MirrorMonitorService::class.java)
                 context.stopService(monitorIntent)
-                
+
                 SuperIslandManager.cancelMirrorNotification(context)
             }
         }

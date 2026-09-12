@@ -21,12 +21,10 @@ import com.kuromify.kuromix.data.WhitelistManager
 import com.kuromify.kuromix.manager.RearDisplayManager
 import com.kuromify.kuromix.root.RootShell
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.preference.SliderPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Edit
@@ -39,10 +37,10 @@ fun QuickCastScreen() {
     val whitelistManager = remember { WhitelistManager(context) }
     val rearDisplays = remember { RearDisplayManager(context) }
     
-    var isEditMode by remember { mutableStateOf(false) }
+    var isEditMode by remember { mutableStateOf(value = false) }
     var apps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(true) }
+    var isLoading by remember { mutableStateOf(value = true) }
 
     val filteredApps = remember(apps, searchQuery) {
         if (searchQuery.isEmpty()) apps
@@ -74,16 +72,18 @@ fun QuickCastScreen() {
                 actions = {
                     if (isEditMode) {
                         val allEnabled = apps.all { perAppConfig[it.packageName]?.enabled ?: true }
-                        IconButton(onClick = {
+                        IconButton(
+                        onClick = {
                             scope.launch {
                                 whitelistManager.updateBatchAppConfig(apps.map { it.packageName }, !allEnabled)
                             }
-                        }) {
-                            Icon(
-                                imageVector = if (allEnabled) Icons.Default.RemoveDone else Icons.Default.DoneAll,
-                                contentDescription = if (allEnabled) "Deselect All" else "Select All"
-                            )
                         }
+                    ) {
+                        Icon(
+                            imageVector = if (allEnabled) Icons.Default.RemoveDone else Icons.Default.DoneAll,
+                            contentDescription = if (allEnabled) "Deselect All" else "Select All"
+                        )
+                    }
                     }
                     IconButton(onClick = { isEditMode = !isEditMode }) {
                         Icon(
@@ -145,7 +145,7 @@ fun QuickCastScreen() {
                                     if (!isEditMode) {
                                         selectedAppForConfig = app
                                     }
-                                }
+                                },
                             )
                         }
                     }
@@ -269,7 +269,7 @@ private fun AppItem(
             try {
                 val icon = context.packageManager.getApplicationIcon(app.packageName)
                 iconBitmap = icon.toBitmap().asImageBitmap()
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Fallback
             }
         }

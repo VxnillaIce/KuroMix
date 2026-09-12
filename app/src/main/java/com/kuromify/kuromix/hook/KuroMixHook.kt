@@ -1,5 +1,6 @@
 package com.kuromify.kuromix.hook
 
+import android.service.notification.StatusBarNotification
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -11,65 +12,106 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
  *
  * This module hooks system_server and SubScreenCenter to keep the rear display alive
  * and improve its background persistence on Xiaomi HyperOS.
+ *
+ * DIAGNOSTIC LOGGING: every findAndHookMethod call now logs success or
+ * failure explicitly instead of silently swallowing Throwable. After
+ * install + reboot, check LSPosed Manager > Logs (or `adb logcat | grep
+ * KUROMIX_HOOK`) and search for "FAILED" to see exactly which internal
+ * class/method names don't match on your build. These are undocumented
+ * OEM-internal classes that vary across HyperOS versions/builds — if
+ * something fails, the fix is to decompile the actual system APK/jar
+ * from your device (jadx on Settings.apk, SystemUIGoogle.apk or
+ * SystemUI.apk, miui-services.jar / framework.jar from /system) and
+ * find the real current name, not to guess again.
  */
 class KuroMixHook : IXposedHookLoadPackage {
 
     companion object {
         private const val TAG = "KuroMixHook"
+        private const val LOG = "[KUROMIX_HOOK]"
         private const val REAR_DISPLAY_ID = 1
         private const val GOOGLE_WALLET_PKG = "com.google.android.apps.walletnfcrel"
         private const val SETTING_KEY = "double_click_power_key"
         private const val MI_PAY_VALUE = "launch_mi_pay"
+        private const val KUROMIX_PKG = "com.kuromify.kuromix"
         private val MI_PAY_TEXTS = arrayOf("Mi Pay", "Key card", "小米支付", "门卡", "智能刷卡", "Transport card", "小米钱包", "卡券", "支付", "钱包")
         private val TARGET_PKGS = setOf("com.miui.tsmclient", "com.unionpay.tsmservice.mi", "com.miui.nextpay", "com.android.nfc")
     }
 
+    // -------------------------------------------------------------------
+    // Logging helper — wraps a hook attempt, logs success or the exact
+    // failure reason instead of swallowing it silently.
+    // -------------------------------------------------------------------
+    private fun tryHook(label: String, block: () -> Unit) {
+        try {
+            block()
+            XposedBridge.log("$TAG: $LOG OK   -> $label")
+        } catch (e: Throwable) {
+            XposedBridge.log("$TAG: $LOG FAILED -> $label :: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
+        XposedBridge.log("$TAG: $LOG handleLoadPackage: ${lpparam.packageName}")
         when (lpparam.packageName) {
             "android" -> hookSystemServer(lpparam)
-            "com.android.systemui" -> hookSystemUI(lpparam)
-            "com.miui.miinput", "com.miui.securitycore", "com.android.settings" -> {
+            "com.android.systemui", "com.miui.notification", "com.miui.securitycenter" -> hookSystemUI(lpparam)
+            "com.miui.miinput", "com.miui.securitycore", "com.android.settings", "com.android.nfc" -> {
                 hookMiInput(lpparam)
                 hookSettingsUI(lpparam)
             }
             "com.xiaomi.subscreencenter" -> hookSubScreenCenter(lpparam)
-            in TARGET_PKGS -> hookMiPayProcesses(lpparam)
-            "com.kuromify.kuromix" -> hookSelf(lpparam)
+            in TARGET_PKGS -> {
+                hookMiPayProcesses(lpparam)
+                hookSettingsUI(lpparam)
+            }
+            KUROMIX_PKG -> hookSelf(lpparam)
+            else -> {}
         }
     }
 
     private fun hookSelf(lpparam: XC_LoadPackage.LoadPackageParam) {
-        XposedHelpers.findAndHookMethod(
-            "com.kuromify.kuromix.root.RootShell",
-            lpparam.classLoader,
-            "isModuleActive",
-            object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    param.result = true
+        tryHook("RootShell.isModuleActive") {
+            XposedHelpers.findAndHookMethod(
+                "com.kuromify.kuromix.root.RootShell",
+                lpparam.classLoader,
+                "isModuleActive",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        param.result = true
+                    }
                 }
-            }
-        )
-        XposedHelpers.findAndHookMethod(
-            "com.kuromify.kuromix.root.RootShell",
-            lpparam.classLoader,
-            "getXposedApiLevel",
-            object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    param.result = XposedBridge.getXposedVersion()
+            )
+        }
+        tryHook("RootShell.getXposedApiLevel") {
+            XposedHelpers.findAndHookMethod(
+                "com.kuromify.kuromix.root.RootShell",
+                lpparam.classLoader,
+                "getXposedApiLevel",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        param.result = XposedBridge.getXposedVersion()
+                    }
                 }
-            }
-        )
+            )
+        }
+    }
+
+    private fun getSysProp(lpparam: XC_LoadPackage.LoadPackageParam, key: String): Boolean {
+        return try {
+            val sysPropClass = XposedHelpers.findClass("android.os.SystemProperties", lpparam.classLoader)
+            XposedHelpers.callStaticMethod(sysPropClass, "get", key, "0") == "1"
+        } catch (e: Throwable) {
+            XposedBridge.log("$TAG: $LOG FAILED -> SystemProperties.get($key) :: ${e.javaClass.simpleName}: ${e.message}")
+            false
+        }
     }
 
     private fun hookMiPayProcesses(lpparam: XC_LoadPackage.LoadPackageParam) {
-        val isReplaceEnabled = try {
-            val sysPropClass = XposedHelpers.findClass("android.os.SystemProperties", lpparam.classLoader)
-            XposedHelpers.callStaticMethod(sysPropClass, "get", "persist.kuromix.replace_mipay", "0") == "1"
-        } catch (_: Throwable) { false }
-
+        val isReplaceEnabled = getSysProp(lpparam, "persist.kuromix.replace_mipay")
         if (!isReplaceEnabled) return
 
-        try {
+        tryHook("Activity.onResume (MiPay redirect)") {
             XposedHelpers.findAndHookMethod(
                 "android.app.Activity",
                 lpparam.classLoader,
@@ -85,7 +127,7 @@ class KuroMixHook : IXposedHookLoadPackage {
                     }
                 }
             )
-        } catch (_: Throwable) {}
+        }
     }
 
     private fun launchGoogleWallet(context: android.content.Context) {
@@ -94,19 +136,210 @@ class KuroMixHook : IXposedHookLoadPackage {
             if (intent != null) {
                 intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(intent)
+            } else {
+                XposedBridge.log("$TAG: $LOG launchGoogleWallet: no launch intent found for $GOOGLE_WALLET_PKG (not installed?)")
             }
-        } catch (_: Throwable) {}
+        } catch (e: Throwable) {
+            XposedBridge.log("$TAG: $LOG FAILED -> launchGoogleWallet :: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    // =====================================================================
+    // Shared: NotificationFilterHelper whitelist hooks.
+    // Was previously duplicated identically in hookSettingsUI, hookSystemUI,
+    // hookSystemServer, and hookSubScreenCenter — now one place to read logs from.
+    // =====================================================================
+    private fun hookNotificationFilterHelper(lpparam: XC_LoadPackage.LoadPackageParam) {
+        val filterHelperClass = try {
+            XposedHelpers.findClass("miui.util.NotificationFilterHelper", lpparam.classLoader)
+        } catch (e: Throwable) {
+            XposedBridge.log("$TAG: $LOG FAILED -> findClass(miui.util.NotificationFilterHelper) in ${lpparam.packageName} :: ${e.javaClass.simpleName}: ${e.message}")
+            return
+        }
+
+        val hookImportant = object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                val pkg = if (param.args[0] is String) param.args[0] as String else param.args[1] as? String
+                if (pkg == KUROMIX_PKG) param.result = true
+            }
+        }
+
+        tryHook("NotificationFilterHelper.isImportantNotification(ctx,pkg)") {
+            XposedHelpers.findAndHookMethod(filterHelperClass, "isImportantNotification", "android.content.Context", String::class.java, hookImportant)
+        }
+        tryHook("NotificationFilterHelper.isImportantNotification(ctx,pkg,notif)") {
+            XposedHelpers.findAndHookMethod(filterHelperClass, "isImportantNotification", "android.content.Context", String::class.java, "android.app.Notification", hookImportant)
+        }
+        tryHook("NotificationFilterHelper.isAllowedShowFocus") {
+            XposedHelpers.findAndHookMethod(filterHelperClass, "isAllowedShowFocus", "android.content.Context", String::class.java, object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (param.args[1] == KUROMIX_PKG) param.result = true
+                }
+            })
+        }
+        tryHook("NotificationFilterHelper.isSupportFocus") {
+            XposedHelpers.findAndHookMethod(filterHelperClass, "isSupportFocus", String::class.java, object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (param.args[0] == KUROMIX_PKG) param.result = true
+                }
+            })
+        }
+        tryHook("NotificationFilterHelper.isSystemApp") {
+            XposedHelpers.findAndHookMethod(filterHelperClass, "isSystemApp", String::class.java, object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (param.args[0] == KUROMIX_PKG) param.result = true
+                }
+            })
+        }
+        tryHook("NotificationFilterHelper.isAllowedShowResidentNotification") {
+            XposedHelpers.findAndHookMethod(filterHelperClass, "isAllowedShowResidentNotification", "android.content.Context", String::class.java, object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (param.args[1] == KUROMIX_PKG) param.result = true
+                }
+            })
+        }
+        tryHook("NotificationFilterHelper.isSupportResidentNotification") {
+            XposedHelpers.findAndHookMethod(filterHelperClass, "isSupportResidentNotification", String::class.java, object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (param.args[0] == KUROMIX_PKG) param.result = true
+                }
+            })
+        }
+    }
+
+    // =====================================================================
+    // Shared: FocusNotificationManager whitelist hook.
+    // Was duplicated identically in hookSystemUI, hookSystemServer, hookSubScreenCenter.
+    // =====================================================================
+    private fun hookFocusNotificationManager(lpparam: XC_LoadPackage.LoadPackageParam) {
+        tryHook("FocusNotificationManager.isFocusNotificationAllowed") {
+            val focusManagerClass = "com.miui.systemui.notification.FocusNotificationManager"
+            XposedHelpers.findAndHookMethod(
+                focusManagerClass,
+                lpparam.classLoader,
+                "isFocusNotificationAllowed",
+                String::class.java,
+                Int::class.javaPrimitiveType,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val pkg = param.args[0] as? String
+                        if (pkg == KUROMIX_PKG) {
+                            param.result = true
+                        }
+                    }
+                }
+            )
+        }
+    }
+
+    // =====================================================================
+    // Shared: double-click power key -> Google Wallet launch.
+    // Was duplicated (with slightly different bodies) in hookSystemUI and hookSystemServer.
+    // =====================================================================
+    private fun hookPowerKeyDoubleClick(lpparam: XC_LoadPackage.LoadPackageParam) {
+        tryHook("MiuiPhoneWindowManager.powerPress") {
+            val windowManagerClass = "com.android.server.policy.MiuiPhoneWindowManager"
+            XposedHelpers.findAndHookMethod(
+                windowManagerClass,
+                lpparam.classLoader,
+                "powerPress",
+                Long::class.javaPrimitiveType,
+                Boolean::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val count = param.args[2] as Int
+                        if (count == 2) {
+                            val context = XposedHelpers.getObjectField(param.thisObject, "mContext") as? android.content.Context ?: return
+                            val action = android.provider.Settings.System.getString(context.contentResolver, "double_click_power_key")
+                            if (action == "google_wallet") {
+                                XposedBridge.log("$TAG: $LOG Launching Google Wallet via power double-click")
+                                launchGoogleWallet(context)
+                                param.result = null
+                            }
+                        }
+                    }
+                }
+            )
+        }
     }
 
     private fun hookSettingsUI(lpparam: XC_LoadPackage.LoadPackageParam) {
-        val isReplaceEnabled = try {
-            val sysPropClass = XposedHelpers.findClass("android.os.SystemProperties", lpparam.classLoader)
-            XposedHelpers.callStaticMethod(sysPropClass, "get", "persist.kuromix.replace_mipay", "0") == "1"
-        } catch (_: Throwable) { false }
+        val isReplaceEnabled = getSysProp(lpparam, "persist.kuromix.replace_mipay")
+
+        // Force allow Focus/Live Update toggles for KuroMix in Settings
+        hookNotificationFilterHelper(lpparam)
+
+        val settingsHelperClass = try {
+            XposedHelpers.findClass("com.miui.notification.NotificationSettingsHelper", lpparam.classLoader)
+        } catch (e: Throwable) {
+            XposedBridge.log("$TAG: $LOG FAILED -> findClass(com.miui.notification.NotificationSettingsHelper) :: ${e.javaClass.simpleName}: ${e.message}")
+            null
+        }
+
+        if (settingsHelperClass != null) {
+            tryHook("NotificationSettingsHelper.isResidentNotificationSupported") {
+                XposedHelpers.findAndHookMethod(settingsHelperClass, "isResidentNotificationSupported", "android.content.Context", String::class.java, object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (param.args[1] == KUROMIX_PKG) param.result = true
+                    }
+                })
+            }
+            tryHook("NotificationSettingsHelper.isFocusNotificationSupported") {
+                XposedHelpers.findAndHookMethod(settingsHelperClass, "isFocusNotificationSupported", "android.content.Context", String::class.java, object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (param.args[1] == KUROMIX_PKG) param.result = true
+                    }
+                })
+            }
+        }
 
         if (!isReplaceEnabled) return
 
-        try {
+        tryHook("Resources.getString (Mi Pay rename)") {
+            XposedHelpers.findAndHookMethod(
+                "android.content.res.Resources",
+                lpparam.classLoader,
+                "getString",
+                Int::class.javaPrimitiveType,
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val result = param.result as? String ?: return
+                        for (miText in MI_PAY_TEXTS) {
+                            if (result.contains(miText, ignoreCase = true)) {
+                                param.result = "Google Wallet"
+                                break
+                            }
+                        }
+                    }
+                }
+            )
+        }
+
+        tryHook("TextView.setText (Mi Pay rename)") {
+            XposedHelpers.findAndHookMethod(
+                "android.widget.TextView",
+                lpparam.classLoader,
+                "setText",
+                CharSequence::class.java,
+                "android.widget.TextView.BufferType",
+                Boolean::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val text = param.args[0]?.toString() ?: return
+                        for (miText in MI_PAY_TEXTS) {
+                            if (text.contains(miText, ignoreCase = true) && !text.contains("Google Wallet")) {
+                                param.args[0] = "Google Wallet"
+                                break
+                            }
+                        }
+                    }
+                }
+            )
+        }
+
+        tryHook("Activity.onResume (DoubleClickPowerKeySettingsActivity sync)") {
             XposedHelpers.findAndHookMethod(
                 "android.app.Activity",
                 lpparam.classLoader,
@@ -116,25 +349,30 @@ class KuroMixHook : IXposedHookLoadPackage {
                         val activity = param.thisObject as android.app.Activity
                         if (activity.javaClass.name.contains("DoubleClickPowerKeySettingsActivity")) {
                             val decorView = activity.window.decorView
-                            decorView.postDelayed({
-                                try {
-                                    syncSelection(activity)
-                                } catch (_: Throwable) {}
-                            }, 500)
+                            decorView.postDelayed(
+                                {
+                                    try {
+                                        syncSelection(activity)
+                                    } catch (e: Throwable) {
+                                        XposedBridge.log("$TAG: $LOG FAILED -> syncSelection :: ${e.javaClass.simpleName}: ${e.message}")
+                                    }
+                                },
+                                500
+                            )
                         }
                     }
                 }
             )
-        } catch (_: Throwable) {}
+        }
     }
 
     private fun syncSelection(activity: android.app.Activity) {
         val root = activity.findViewById<android.view.ViewGroup>(android.R.id.content) ?: return
         val gWalletRow = findRowByText(root, "Google Wallet") ?: return
-        
+
         val currentSetting = android.provider.Settings.System.getString(activity.contentResolver, SETTING_KEY)
-        val isSelected = (currentSetting == MI_PAY_VALUE || currentSetting == "mi_pay")
-        
+        val isSelected = (currentSetting == MI_PAY_VALUE) || (currentSetting == "mi_pay")
+
         updateSelectionState(gWalletRow, selected = isSelected)
 
         gWalletRow.setOnClickListener {
@@ -151,12 +389,15 @@ class KuroMixHook : IXposedHookLoadPackage {
     }
 
     private fun updateSelectionState(row: android.view.View, selected: Boolean) {
-        if (row is android.widget.Checkable) row.isChecked = selected
-        if (row is android.view.ViewGroup) {
-            for (i in 0 until row.childCount) {
-                val child = row.getChildAt(i)
-                if (child is android.widget.Checkable) child.isChecked = selected
-                else if (child is android.view.ViewGroup) updateSelectionState(child, selected)
+        (row as? android.widget.Checkable)?.isChecked = selected
+        (row as? android.view.ViewGroup)?.let {
+            for (i in 0 until it.childCount) {
+                val child = it.getChildAt(i)
+                if (child is android.widget.Checkable) {
+                    child.isChecked = selected
+                } else if (child is android.view.ViewGroup) {
+                    updateSelectionState(child, selected)
+                }
             }
         }
     }
@@ -185,16 +426,12 @@ class KuroMixHook : IXposedHookLoadPackage {
     }
 
     private fun hookMiInput(lpparam: XC_LoadPackage.LoadPackageParam) {
-        XposedBridge.log("$TAG: Hooking MiInput (${lpparam.packageName})")
-        
-        val isReplaceEnabled = try {
-            val sysPropClass = XposedHelpers.findClass("android.os.SystemProperties", lpparam.classLoader)
-            XposedHelpers.callStaticMethod(sysPropClass, "get", "persist.kuromix.replace_mipay", "0") == "1"
-        } catch (_: Throwable) { false }
+        XposedBridge.log("$TAG: $LOG Hooking MiInput (${lpparam.packageName})")
+
+        val isReplaceEnabled = getSysProp(lpparam, "persist.kuromix.replace_mipay")
 
         if (isReplaceEnabled) {
-            try {
-                // Hook Resources to rename "Mi Pay" strings
+            tryHook("Resources.getString (MiInput Mi Pay rename)") {
                 XposedHelpers.findAndHookMethod(
                     "android.content.res.Resources",
                     lpparam.classLoader,
@@ -212,8 +449,9 @@ class KuroMixHook : IXposedHookLoadPackage {
                         }
                     }
                 )
+            }
 
-                // Hook TextView to rename labels dynamically
+            tryHook("TextView.setText (MiInput Mi Pay rename)") {
                 XposedHelpers.findAndHookMethod(
                     "android.widget.TextView",
                     lpparam.classLoader,
@@ -234,10 +472,10 @@ class KuroMixHook : IXposedHookLoadPackage {
                         }
                     }
                 )
-            } catch (_: Throwable) {}
+            }
         }
 
-        try {
+        tryHook("DoubleClickPowerKeySettingsActivity.getItems") {
             val activityClass = "com.miui.miinput.gesture.powerkey.DoubleClickPowerKeySettingsActivity"
             val itemClass = "com.miui.miinput.gesture.model.GestureItem"
 
@@ -249,13 +487,12 @@ class KuroMixHook : IXposedHookLoadPackage {
                     @Suppress("UNCHECKED_CAST")
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val items = param.result as? MutableList<Any> ?: return
-                        
-                        // Check if Google Wallet already exists in the list (added by us or natively)
-                        val exists = items.any { 
+
+                        val exists = items.any {
                             XposedHelpers.getObjectField(it, "mId") == "google_wallet" ||
-                            (XposedHelpers.getObjectField(it, "mName") as? String)?.contains("Google Wallet") == true
+                                    (XposedHelpers.getObjectField(it, "mName") as? String)?.contains("Google Wallet") == true
                         }
-                        
+
                         if (!exists) {
                             val walletItem = XposedHelpers.newInstance(
                                 XposedHelpers.findClass(itemClass, lpparam.classLoader),
@@ -269,13 +506,13 @@ class KuroMixHook : IXposedHookLoadPackage {
                     }
                 }
             )
-        } catch (_: Throwable) {}
+        }
     }
 
     private fun hookSystemUI(lpparam: XC_LoadPackage.LoadPackageParam) {
-        XposedBridge.log("$TAG: Hooking SystemUI")
-        try {
-            // Force spotlight (Super Island) eligibility for KuroMix
+        XposedBridge.log("$TAG: $LOG Hooking SystemUI (${lpparam.packageName})")
+
+        tryHook("SpotlightController.isSpotlightAvailable") {
             val spotlightControllerClass = "com.miui.systemui.notification.SpotlightController"
             XposedHelpers.findAndHookMethod(
                 spotlightControllerClass,
@@ -287,105 +524,38 @@ class KuroMixHook : IXposedHookLoadPackage {
                         val entry = param.args[0]
                         val sbn = XposedHelpers.callMethod(entry, "getSbn")
                         val pkg = XposedHelpers.callMethod(sbn, "getPackageName") as? String
-                        if (pkg == "com.kuromify.kuromix") {
+                        if (pkg == KUROMIX_PKG) {
                             param.result = true
                         }
                     }
                 }
             )
-        } catch (_: Throwable) {}
+        }
 
-        // 5. Hook NotificationFilterHelper to ensure KuroMix is treated as Important/Focus
-        try {
-            val filterHelperClass = XposedHelpers.findClass("miui.util.NotificationFilterHelper", lpparam.classLoader)
-            XposedHelpers.findAndHookMethod(
-                filterHelperClass,
-                "isImportantNotification",
-                "android.content.Context",
-                "java.lang.String",
-                "android.app.Notification",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val pkg = param.args[1] as? String
-                        if (pkg == "com.kuromify.kuromix") {
-                            param.result = true
-                        }
-                    }
+        tryHook("MiuiNotificationHelper.isResidentNotification") {
+            val miuiNotificationHelperClass = XposedHelpers.findClass("com.android.systemui.statusbar.notification.MiuiNotificationHelper", lpparam.classLoader)
+            XposedHelpers.findAndHookMethod(miuiNotificationHelperClass, "isResidentNotification", "android.service.notification.StatusBarNotification", object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    val sbn = param.args[0] as? StatusBarNotification
+                    if (sbn?.packageName == KUROMIX_PKG) param.result = true
                 }
-            )
+            })
+        }
 
-            XposedHelpers.findAndHookMethod(
-                filterHelperClass,
-                "isSystemApp",
-                "java.lang.String",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val pkg = param.args[0] as? String
-                        if (pkg == "com.kuromify.kuromix") {
-                            param.result = true
-                        }
-                    }
-                }
-            )
-        } catch (_: Throwable) {}
-
-        // 6. Hook MiuiPhoneWindowManager for double-click power button action
-        try {
-            val windowManagerClass = "com.android.server.policy.MiuiPhoneWindowManager"
-            XposedHelpers.findAndHookMethod(
-                windowManagerClass,
-                lpparam.classLoader,
-                "powerPress",
-                Long::class.javaPrimitiveType, // eventTime
-                Boolean::class.javaPrimitiveType, // interactive
-                Int::class.javaPrimitiveType, // count
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val count = param.args[2] as Int
-                        if (count == 2) {
-                            val context = XposedHelpers.getObjectField(param.thisObject, "mContext") as? android.content.Context ?: return
-                            val action = android.provider.Settings.System.getString(context.contentResolver, "double_click_power_key")
-                            
-                            if (action == "google_wallet") {
-                                XposedBridge.log("$TAG: Launching Google Wallet via power double-click")
-                                
-                                val intent = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.walletnfcrel")
-                                if (intent != null) {
-                                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
-                                    
-                                    // Consume the event to prevent default behavior
-                                    param.result = null
-                                }
-                            }
-                        }
-                    }
-                }
-            )
-        } catch (_: Throwable) {}
+        hookFocusNotificationManager(lpparam)
+        hookNotificationFilterHelper(lpparam)
+        hookPowerKeyDoubleClick(lpparam)
     }
 
     private fun hookSystemServer(lpparam: XC_LoadPackage.LoadPackageParam) {
-        XposedBridge.log("$TAG: Hooking system_server")
+        XposedBridge.log("$TAG: $LOG Hooking system_server")
 
-        val isKeepAwake = try {
-            val sysPropClass = XposedHelpers.findClass("android.os.SystemProperties", lpparam.classLoader)
-            XposedHelpers.callStaticMethod(sysPropClass, "get", "persist.kuromix.keep_awake", "0") == "1"
-        } catch (_: Throwable) { false }
+        val isKeepAwake = getSysProp(lpparam, "persist.kuromix.keep_awake")
+        val isAntiKill = getSysProp(lpparam, "persist.kuromix.anti_kill")
+        val isReplaceEnabled = getSysProp(lpparam, "persist.kuromix.replace_mipay")
 
-        val isAntiKill = try {
-            val sysPropClass = XposedHelpers.findClass("android.os.SystemProperties", lpparam.classLoader)
-            XposedHelpers.callStaticMethod(sysPropClass, "get", "persist.kuromix.anti_kill", "0") == "1"
-        } catch (_: Throwable) { false }
-
-        val isReplaceEnabled = try {
-            val sysPropClass = XposedHelpers.findClass("android.os.SystemProperties", lpparam.classLoader)
-            XposedHelpers.callStaticMethod(sysPropClass, "get", "persist.kuromix.replace_mipay", "0") == "1"
-        } catch (_: Throwable) { false }
-
-        // 0. Redirection logic for Mi Pay intents
         if (isReplaceEnabled) {
-            try {
+            tryHook("ActivityTaskManagerService.startActivity (MiPay redirect)") {
                 val atmClass = "com.android.server.wm.ActivityTaskManagerService"
                 XposedBridge.hookAllMethods(
                     XposedHelpers.findClass(atmClass, lpparam.classLoader),
@@ -399,17 +569,16 @@ class KuroMixHook : IXposedHookLoadPackage {
                                 val setting = android.provider.Settings.System.getString(context.contentResolver, SETTING_KEY)
                                 if (setting == MI_PAY_VALUE || setting == "mi_pay") {
                                     launchGoogleWallet(context)
-                                    param.result = 0 // START_SUCCESS
+                                    param.result = 0
                                 }
                             }
                         }
                     }
                 )
-            } catch (_: Throwable) {}
+            }
         }
 
-        // 1. Prevent task recall on screen off
-        try {
+        tryHook("RootWindowContainer.shouldRecallTask") {
             val rootWindowContainerClass = "com.android.server.wm.RootWindowContainer"
             XposedHelpers.findAndHookMethod(
                 rootWindowContainerClass,
@@ -431,12 +600,10 @@ class KuroMixHook : IXposedHookLoadPackage {
                     }
                 }
             )
-        } catch (_: Throwable) {}
+        }
 
-        // 2. Hook SubScreenManagerService for power state and gesture control
-        try {
+        tryHook("SubScreenManagerService.isSupportSubScreen") {
             val subScreenServiceClass = "com.miui.server.SubScreenManagerService"
-            
             XposedHelpers.findAndHookMethod(
                 subScreenServiceClass,
                 lpparam.classLoader,
@@ -448,8 +615,10 @@ class KuroMixHook : IXposedHookLoadPackage {
                     }
                 }
             )
+        }
 
-            // WAKE-LOCK: Override power mode OFF -> ON
+        tryHook("SubScreenManagerService.setSubDisplayPowerMode") {
+            val subScreenServiceClass = "com.miui.server.SubScreenManagerService"
             XposedHelpers.findAndHookMethod(
                 subScreenServiceClass,
                 lpparam.classLoader,
@@ -458,13 +627,15 @@ class KuroMixHook : IXposedHookLoadPackage {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         if (isKeepAwake && param.args[0] == 0) {
-                            param.args[0] = 2 
+                            param.args[0] = 2
                         }
                     }
                 }
             )
+        }
 
-            // DISABLE DOUBLE-TAP GESTURE
+        tryHook("SubScreenManagerService.handleSubScreenDoubleTap") {
+            val subScreenServiceClass = "com.miui.server.SubScreenManagerService"
             XposedHelpers.findAndHookMethod(
                 subScreenServiceClass,
                 lpparam.classLoader,
@@ -475,10 +646,9 @@ class KuroMixHook : IXposedHookLoadPackage {
                     }
                 }
             )
-        } catch (_: Throwable) {}
+        }
 
-        // 3. Hook ActivityStarterImpl for whitelisting
-        try {
+        tryHook("ActivityStarterImpl.isAllowedToStartOnRearDisplay") {
             val starterClass = "com.android.server.wm.ActivityStarterImpl"
             XposedHelpers.findAndHookMethod(
                 starterClass,
@@ -492,10 +662,9 @@ class KuroMixHook : IXposedHookLoadPackage {
                     }
                 }
             )
-        } catch (_: Throwable) {}
+        }
 
-        // 4. Hook ProcessPolicy for background whitelisting (Dynamic White List)
-        try {
+        tryHook("ProcessPolicy.updateDynamicWhiteList") {
             val processPolicyClass = "com.android.server.am.ProcessPolicy"
             XposedHelpers.findAndHookMethod(
                 processPolicyClass,
@@ -508,12 +677,15 @@ class KuroMixHook : IXposedHookLoadPackage {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         if (isAntiKill) {
                             val map = param.result as? MutableMap<String, Boolean> ?: return
-                            map["com.kuromify.kuromix"] = true
+                            map[KUROMIX_PKG] = true
                         }
                     }
                 }
             )
+        }
 
+        tryHook("ProcessPolicy.systemReady") {
+            val processPolicyClass = "com.android.server.am.ProcessPolicy"
             XposedHelpers.findAndHookMethod(
                 processPolicyClass,
                 lpparam.classLoader,
@@ -522,85 +694,23 @@ class KuroMixHook : IXposedHookLoadPackage {
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         if (isAntiKill) {
-                            XposedHelpers.callMethod(param.thisObject, "updateApplicationLockedState", "com.kuromify.kuromix", -100, true)
+                            XposedHelpers.callMethod(param.thisObject, "updateApplicationLockedState", KUROMIX_PKG, -100, true)
                         }
                     }
                 }
             )
-        } catch (_: Throwable) {}
+        }
 
-        // 5. Hook NotificationFilterHelper to ensure KuroMix is treated as Important/Focus
-        try {
-            val filterHelperClass = XposedHelpers.findClass("miui.util.NotificationFilterHelper", lpparam.classLoader)
-            XposedHelpers.findAndHookMethod(
-                filterHelperClass,
-                "isImportantNotification",
-                "android.content.Context",
-                "java.lang.String",
-                "android.app.Notification",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val pkg = param.args[1] as? String
-                        if (pkg == "com.kuromify.kuromix") {
-                            param.result = true
-                        }
-                    }
-                }
-            )
-
-            XposedHelpers.findAndHookMethod(
-                filterHelperClass,
-                "isSystemApp",
-                "java.lang.String",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val pkg = param.args[0] as? String
-                        if (pkg == "com.kuromify.kuromix") {
-                            param.result = true
-                        }
-                    }
-                }
-            )
-        } catch (_: Throwable) {}
-
-        // 6. Hook MiuiPhoneWindowManager for double-click power button action
-        try {
-            val windowManagerClass = "com.android.server.policy.MiuiPhoneWindowManager"
-            XposedHelpers.findAndHookMethod(
-                windowManagerClass,
-                lpparam.classLoader,
-                "powerPress",
-                Long::class.javaPrimitiveType, // eventTime
-                Boolean::class.javaPrimitiveType, // interactive
-                Int::class.javaPrimitiveType, // count
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val count = param.args[2] as Int
-                        if (count == 2) {
-                            val context = XposedHelpers.getObjectField(param.thisObject, "mContext") as? android.content.Context ?: return
-                            val action = android.provider.Settings.System.getString(context.contentResolver, "double_click_power_key")
-                            
-                            if (action == "google_wallet") {
-                                XposedBridge.log("$TAG: Launching Google Wallet via power double-click")
-                                launchGoogleWallet(context)
-                                param.result = null
-                            }
-                        }
-                    }
-                }
-            )
-        } catch (_: Throwable) {}
+        hookFocusNotificationManager(lpparam)
+        hookNotificationFilterHelper(lpparam)
+        hookPowerKeyDoubleClick(lpparam)
     }
 
     private fun hookSubScreenCenter(lpparam: XC_LoadPackage.LoadPackageParam) {
-        val isAntiKill = try {
-            val sysPropClass = XposedHelpers.findClass("android.os.SystemProperties", lpparam.classLoader)
-            XposedHelpers.callStaticMethod(sysPropClass, "get", "persist.kuromix.anti_kill", "0") == "1"
-        } catch (_: Throwable) { false }
-        
-        try {
+        val isAntiKill = getSysProp(lpparam, "persist.kuromix.anti_kill")
+
+        tryHook("SubScreenStatusManager.notifySubScreenOff") {
             val statusManagerClass = "com.xiaomi.subscreencenter.SubScreenStatusManager"
-            
             XposedHelpers.findAndHookMethod(
                 statusManagerClass,
                 lpparam.classLoader,
@@ -611,102 +721,24 @@ class KuroMixHook : IXposedHookLoadPackage {
                     }
                 }
             )
+        }
 
+        tryHook("SubScreenStatusManager.getSubScreenDisplayTime") {
+            val statusManagerClass = "com.xiaomi.subscreencenter.SubScreenStatusManager"
             XposedHelpers.findAndHookMethod(
                 statusManagerClass,
                 lpparam.classLoader,
                 "getSubScreenDisplayTime",
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        param.result = 24 * 60 * 60 * 1000 // 24 hours
+                        param.result = 24 * 60 * 60 * 1000
                     }
                 }
             )
+        }
 
-            // HOME GUARD: Block transition to launcher on AOD
-            XposedHelpers.findAndHookMethod(
-                statusManagerClass,
-                lpparam.classLoader,
-                "moveHomeToFront",
-                String::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (isAntiKill) {
-                            val reason = param.args[0] as? String
-                            if (reason == "aod" || reason == "turning_off") param.result = null
-                        }
-                    }
-                }
-            )
-        } catch (_: Throwable) {}
-
-        // 5. Hook NotificationFilterHelper to ensure KuroMix is treated as Important/Focus
-        try {
-            val filterHelperClass = XposedHelpers.findClass("miui.util.NotificationFilterHelper", lpparam.classLoader)
-            XposedHelpers.findAndHookMethod(
-                filterHelperClass,
-                "isImportantNotification",
-                "android.content.Context",
-                "java.lang.String",
-                "android.app.Notification",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val pkg = param.args[1] as? String
-                        if (pkg == "com.kuromify.kuromix") {
-                            param.result = true
-                        }
-                    }
-                }
-            )
-
-            XposedHelpers.findAndHookMethod(
-                filterHelperClass,
-                "isSystemApp",
-                "java.lang.String",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val pkg = param.args[0] as? String
-                        if (pkg == "com.kuromify.kuromix") {
-                            param.result = true
-                        }
-                    }
-                }
-            )
-        } catch (_: Throwable) {}
-
-        // 6. Hook MiuiPhoneWindowManager for double-click power button action
-        try {
-            val windowManagerClass = "com.android.server.policy.MiuiPhoneWindowManager"
-            XposedHelpers.findAndHookMethod(
-                windowManagerClass,
-                lpparam.classLoader,
-                "powerPress",
-                Long::class.javaPrimitiveType, // eventTime
-                Boolean::class.javaPrimitiveType, // interactive
-                Int::class.javaPrimitiveType, // count
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val count = param.args[2] as Int
-                        if (count == 2) {
-                            val context = XposedHelpers.getObjectField(param.thisObject, "mContext") as? android.content.Context ?: return
-                            val action = android.provider.Settings.System.getString(context.contentResolver, "double_click_power_key")
-                            
-                            if (action == "google_wallet") {
-                                XposedBridge.log("$TAG: Launching Google Wallet via power double-click")
-                                
-                                val intent = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.walletnfcrel")
-                                if (intent != null) {
-                                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
-                                    
-                                    // Consume the event to prevent default behavior
-                                    param.result = null
-                                }
-                            }
-                        }
-                    }
-                }
-            )
-        } catch (_: Throwable) {}
+        hookFocusNotificationManager(lpparam)
+        hookNotificationFilterHelper(lpparam)
+        hookPowerKeyDoubleClick(lpparam)
     }
 }

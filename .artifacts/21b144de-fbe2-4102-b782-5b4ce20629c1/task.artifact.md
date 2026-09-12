@@ -1,8 +1,7 @@
-# Tasks - Precision GPay Hook & Scope Expansion
+# Tasks - Final Super Island Fix
 
-- [x] Update `strings.xml` with NFC and payment packages
-- [x] Implement deep rebranding and `syncSelection` in `KuroMixHook.kt`
-- [x] Implement `ActivityTaskManagerService` redirection logic
-- [x] Implement `Activity#onResume` hooks in payment apps
+- [x] Implement whitelisting hook in `KuroMixHook.kt`
+- [x] Refine `showMirrorNotification` in `SuperIslandManager.kt`
+- [x] Implement "Kill Signal" dismissal in `cancelMirrorNotification`
 - [x] Verify build
 - [x] Update walkthrough

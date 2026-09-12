@@ -1,44 +1,42 @@
-# Implementation Plan - Precision GPay Hook & Scope Expansion
+# Implementation Plan - Final Super Island Fix
 
-This plan refines the Google Wallet (GPay) remapping to strictly follow the provided script's logic, ensuring deep rebranding, UI synchronization, and expanding the Xposed scope to include NFC and payment services.
+This plan implements the absolute definitive fix for Xiaomi Super Island (Focus Notifications) by combining deep Xposed whitelisting with correctly structured "Live Activity" payloads.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **Scope Expansion:** For the GPay hook to work perfectly, you will need to enable **NFC Service**, **Mi Pay**, and **UnionPay** in the KuroMix scope within LSPosed.
+> **Whitelisting Strategy:** I will hook `com.miui.systemui.notification.FocusNotificationManager` in the `SystemUI` process to force-allow KuroMix. This bypasses the strict Xiaomi signature/whitelist check that was causing it to show as a "Normal Notification".
 
 ## Proposed Changes
-
-### [strings.xml](file:///D:/KuroMix/app/src/main/res/values/strings.xml)
-
-#### [MODIFY] [strings.xml](file:///D:/KuroMix/app/src/main/res/values/strings.xml)
-- Add the following packages to the `xposed_scope` array:
-    - `com.android.nfc` (NFC Service)
-    - `com.miui.tsmclient` (Mi Pay / TSM Client)
-    - `com.unionpay.tsmservice.mi` (UnionPay Service)
-    - `com.miui.nextpay` (Next Pay)
 
 ### [KuroMixHook.kt](file:///D:/KuroMix/app/src/main/java/com/kuromify/kuromix/hook/KuroMixHook.kt)
 
 #### [MODIFY] [KuroMixHook.kt](file:///D:/KuroMix/app/src/main/java/com/kuromify/kuromix/hook/KuroMixHook.kt)
-- **Deep Rebranding Logic:**
-    - Update `Resources#getString` hook to replace any text matching the "Mi Pay" keywords (`Mi Pay`, `Transport card`, `Key card`, etc.) with "Google Wallet".
-    - Update `TextView#setText` hook to perform the same replacement dynamically in the UI.
-- **UI Synchronization (`syncSelection`):**
-    - Hook `Activity#onResume` for `DoubleClickPowerKeySettingsActivity`.
-    - Implement a post-delayed task to find the "Google Wallet" row (formerly "Mi Pay") and:
-        - Sync its selection state with the `double_click_power_key` system setting.
-        - Add a custom `OnClickListener` to the row to update the system setting to `launch_mi_pay` and refresh the radio button UI when clicked.
-- **Improved Redirection:**
-    - Hook `ActivityTaskManagerService#startActivity` (in `system_server`) to intercept any Intent targeting the payment packages and launch Google Wallet instead.
-    - Hook `Activity#onResume` in the payment packages (`com.miui.tsmclient`, etc.) as a secondary layer to redirect to Google Wallet and finish the task.
+- **New Hook:** `com.miui.systemui.notification.FocusNotificationManager#isFocusNotificationAllowed`.
+    - Intercept this method in `com.android.systemui`.
+    - Force-return `true` if the calling package is `com.kuromify.kuromix`.
+- This ensures the system recognizes KuroMix as an authorized "Live Activity" provider.
+
+### [SuperIslandManager.kt](file:///D:/KuroMix/app/src/main/java/com/kuromify/kuromix/notification/SuperIslandManager.kt)
+
+#### [MODIFY] [SuperIslandManager.kt](file:///D:/KuroMix/app/src/main/java/com/kuromify/kuromix/notification/SuperIslandManager.kt)
+- **Pill Logic:** Use `business: "1002"` (the standard ID for Live Activities like ride-hailing).
+- **Update Logic:** Ensure `orderId` is constant (`"mirror_task"`) to allow seamless updates and cancellation.
+- **Cancellation Fix:**
+    - Update `cancelMirrorNotification` to send a final notification update with `"cancel": true` in the JSON.
+    - This is the secret to making the pill "fly away" immediately when mirroring stops.
+- **Extra Flags:** Add `miui.is_focus_notification = true` to the notification bundle.
 
 ## Verification Plan
 
 ### Automated Tests
-- Build the project with `./gradlew :app:assembleDebug`.
+- Build the project.
 
 ### Manual Verification
-1.  **Scope Check:** In LSPosed, verify that all new packages are visible and selectable for KuroMix.
-2.  **Settings UI:** Navigate to the gesture settings; verify that "Mi Pay" is rebranded as "Google Wallet" and that selecting it correctly updates the radio buttons.
-3.  **Hardware Test:** Double-press the power button; verify it triggers GPay without showing any Mi Pay screens.
+> [!IMPORTANT]
+> **REBOOT REQUIRED:** These system hooks require a reboot to activate.
+
+1.  Mirror an app.
+2.  Verify a pill (Super Island) appears around the camera cutout showing the app name.
+3.  Unmirror (via tile or button).
+4.  Verify the pill vanishes immediately.

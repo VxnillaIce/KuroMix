@@ -13,7 +13,7 @@ android {
         minSdk = 33
         targetSdk = 37
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.1.2"
     }
 
     buildFeatures {
@@ -71,6 +71,9 @@ dependencies {
     // Root shell access (su exec, output parsing, root service)
     implementation("com.github.topjohnwu.libsu:core:5.2.2")
     implementation("com.github.topjohnwu.libsu:service:5.2.2")
+
+    // HyperIsland ToolKit for Xiaomi Super Island
+    implementation("io.github.d4viddf:hyperisland_kit:0.4.4")
 
     // Xposed/LSPosed API — hooks are compiled against this, provided by the
     // framework at runtime on the rooted device, never bundled into the APK.

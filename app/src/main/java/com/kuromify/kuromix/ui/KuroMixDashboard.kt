@@ -16,22 +16,24 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kuromify.kuromix.R
 import com.kuromify.kuromix.data.WhitelistManager
-import com.kuromify.kuromix.manager.RearDisplayManager
 import com.kuromify.kuromix.root.RootShell
 import com.kuromify.kuromix.ui.component.OS3GradientBanner
 import com.kuromify.kuromix.service.RearDisplayService
 import com.topjohnwu.superuser.Shell
 import android.content.Intent
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Settings
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -47,22 +49,19 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
     val scope = rememberCoroutineScope()
     val whitelistManager = remember { WhitelistManager(context) }
 
-    val rearDisplays = remember { RearDisplayManager(context) }
-    var rearDisplayId by remember { mutableStateOf(rearDisplays.primaryRearDisplayId()) }
     var rootReady by remember { mutableStateOf<Boolean?>(null) }
     var status by remember { mutableStateOf("") }
     
-    val lensOptimization by whitelistManager.lensOptimizationFlow.collectAsState(initial = false)
     val mirrorModuleEnabled by whitelistManager.mirrorModuleEnabledFlow.collectAsState(initial = true)
-    val keepAwakeEnabled by whitelistManager.keepAwakeEnabledFlow.collectAsState(initial = false)
-    val antiKillEnabled by whitelistManager.antiKillEnabledFlow.collectAsState(initial = false)
     val replaceMipayEnabled by whitelistManager.replaceMipayEnabledFlow.collectAsState(initial = false)
 
-    val isModuleActive = remember { RootShell.isModuleActive() }
+    var isModuleActive by remember { mutableStateOf(RootShell.isModuleActive()) }
+    var showRestartDialog by remember { mutableStateOf(false) }
 
-    fun checkRoot() {
+    fun refreshState() {
         scope.launch {
-            rootReady = withContext(kotlinx.coroutines.Dispatchers.IO) { 
+            rootReady = null
+            rootReady = withContext(Dispatchers.IO) { 
                 // If current cached shell is not root, close it to force a fresh attempt
                 val cached = Shell.getCachedShell()
                 if ((cached != null) && !cached.isRoot) {
@@ -71,11 +70,12 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
                 }
                 RootShell.isRootAvailable() 
             }
+            isModuleActive = RootShell.isModuleActive()
         }
     }
 
     LaunchedEffect(Unit) {
-        checkRoot()
+        refreshState()
     }
 
     Scaffold(
@@ -85,30 +85,18 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
                 title = "KuroMix",
                 actions = {
                     IconButton(
-                        onClick = {
-                            scope.launch {
-                                withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                    val scopeApps = context.resources.getStringArray(R.array.xposed_scope)
-                                    scopeApps.forEach { pkg ->
-                                        if (pkg != context.packageName) {
-                                            RootShell.forceStopPackage(pkg)
-                                        }
-                                    }
-                                }
-                                status = "Scoped apps restarted"
-                            }
-                        }
+                        onClick = { showRestartDialog = true },
                     ) {
                         Icon(imageVector = Icons.Default.Refresh, contentDescription = "Restart Scoped Apps")
                     }
                     IconButton(
-                        onClick = onNavigateToSettings
+                        onClick = onNavigateToSettings,
                     ) {
                         Icon(imageVector = MiuixIcons.Settings, contentDescription = "Settings")
                     }
-                }
+                },
             )
-        }
+        },
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -148,12 +136,8 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
                             false -> "Denied - Tap to retry"
                         },
                         onClick = {
-                            if (rootReady != true) checkRoot()
+                            refreshState()
                         }
-                    )
-                    BasicComponent(
-                        title = "Rear Display",
-                        summary = if (rearDisplayId != null) "Detected (ID: $rearDisplayId)" else "Not Detected"
                     )
                 }
             }
@@ -163,21 +147,14 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
                 SmallTitle(text = "MODULES")
                 Card {
                     SwitchPreference(
-                        title = "Rear Screen Mirror",
+                        title = "Rear Screen Mirroring",
                         summary = "Enable/Disable global mirroring features",
                         checked = mirrorModuleEnabled,
                         onCheckedChange = { 
-                            scope.launch { whitelistManager.setMirrorModuleEnabled(it) }
-                        }
-                    )
-                    SwitchPreference(
-                        title = "Keep Screen Awake",
-                        summary = "Prevent sleep on power button or double-tap",
-                        checked = keepAwakeEnabled,
-                        onCheckedChange = { 
                             scope.launch { 
-                                whitelistManager.setKeepAwakeEnabled(it)
+                                whitelistManager.setMirrorModuleEnabled(it)
                                 RootShell.setKeepAwakeProp(it)
+                                RootShell.setAntiKillProp(it)
                                 
                                 val intent = Intent(context, RearDisplayService::class.java)
                                 if (it) {
@@ -189,17 +166,6 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
                         }
                     )
                     SwitchPreference(
-                        title = "Aggressive Anti-Kill",
-                        summary = "Prevent process freezing and launcher interference",
-                        checked = antiKillEnabled,
-                        onCheckedChange = { 
-                            scope.launch { 
-                                whitelistManager.setAntiKillEnabled(it)
-                                RootShell.setAntiKillProp(it)
-                            }
-                        }
-                    )
-                    SwitchPreference(
                         title = "Replace Mi Pay with GPay",
                         summary = "Remap Mi Pay double-click to Google Wallet",
                         checked = replaceMipayEnabled,
@@ -207,17 +173,6 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
                             scope.launch {
                                 whitelistManager.setReplaceMipayEnabled(it)
                                 RootShell.setReplaceMipayProp(it)
-                            }
-                        }
-                    )
-                    SwitchPreference(
-                        title = "Optimize for Lenses",
-                        summary = "Push content to the right side",
-                        checked = lensOptimization,
-                        enabled = mirrorModuleEnabled,
-                        onCheckedChange = { 
-                            scope.launch { 
-                                whitelistManager.setLensOptimization(it)
                             }
                         }
                     )
@@ -235,6 +190,83 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
             item {
                 Spacer(Modifier.height(32.dp))
             }
+        }
+    }
+
+    if (showRestartDialog) {
+        RestartAppsDialog(
+            onDismiss = { showRestartDialog = false },
+            onRestart = { pkgs ->
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        pkgs.forEach { RootShell.forceStopPackage(it) }
+                    }
+                    status = "Selected apps restarted"
+                    showRestartDialog = false
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun RestartAppsDialog(onDismiss: () -> Unit, onRestart: (List<String>) -> Unit) {
+    val groups = listOf(
+        "System UI" to listOf("com.android.systemui"),
+        "Settings" to listOf("com.android.settings"),
+        "Subscreen Center" to listOf("com.xiaomi.subscreencenter"),
+        "GPay Scopes" to listOf(
+            "com.miui.miinput",
+            "com.miui.securitycore",
+            "com.android.nfc",
+            "com.miui.tsmclient",
+            "com.unionpay.tsmservice.mi",
+            "com.miui.nextpay"
+        )
+    )
+    val selectedPackages = remember { mutableStateListOf<String>() }
+
+    OverlayDialog(
+        show = true,
+        title = "Restart Scoped Apps",
+        onDismissRequest = onDismiss
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Card {
+                groups.forEach { (name, pkgs) ->
+                    val isSelected = pkgs.all { selectedPackages.contains(it) }
+                    BasicComponent(
+                        title = name,
+                        summary = if (pkgs.size > 1) "${pkgs.size} apps" else pkgs.first(),
+                        endActions = {
+                            Checkbox(
+                                state = if (isSelected) ToggleableState.On else ToggleableState.Off,
+                                onClick = {
+                                    if (!isSelected) {
+                                        pkgs.forEach { if (!selectedPackages.contains(it)) selectedPackages.add(it) }
+                                    } else {
+                                        pkgs.forEach { selectedPackages.remove(it) }
+                                    }
+                                }
+                            )
+                        },
+                        onClick = {
+                            if (!isSelected) {
+                                pkgs.forEach { if (!selectedPackages.contains(it)) selectedPackages.add(it) }
+                            } else {
+                                pkgs.forEach { selectedPackages.remove(it) }
+                            }
+                        }
+                    )
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                Button(onClick = { onRestart(selectedPackages.toList()) }) {
+                    Text("Restart")
+                }
+            }
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

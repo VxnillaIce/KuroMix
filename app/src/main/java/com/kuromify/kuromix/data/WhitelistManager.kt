@@ -103,6 +103,9 @@ class WhitelistManager(private val context: Context) {
     suspend fun setMirrorModuleEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[MODULE_MIRROR_ENABLED_KEY] = enabled
+            preferences[MODULE_KEEP_AWAKE_ENABLED_KEY] = enabled
+            preferences[MODULE_ANTI_KILL_ENABLED_KEY] = enabled
+            preferences[LENS_OPTIMIZATION_KEY] = enabled
         }
     }
 

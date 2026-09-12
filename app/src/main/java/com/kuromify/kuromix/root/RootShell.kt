@@ -64,17 +64,20 @@ object RootShell {
     }
 
     /** Parses the current top task ID and its display from activity manager. */
+    @Suppress("unused")
     fun getTopTaskInfo(): TaskInfo? {
         val r = run("am stack list")
         if (r.ok) {
             var currentDisplayId = -1
             for (line in r.out) {
                 val displayMatch = Regex("""displayId=(\d+)""").find(line)
-                displayMatch?.let { currentDisplayId = it.groupValues[1].toInt() }
+                displayMatch?.let {
+                    currentDisplayId = it.groupValues[1].toInt()
+                }
 
                 if (line.contains("visible=true")) {
                     val taskIdMatch = Regex("""taskId=(\d+)""").find(line)
-                    if (taskIdMatch != null && currentDisplayId != -1) {
+                    if ((taskIdMatch != null) && (currentDisplayId != -1)) {
                         return TaskInfo(taskIdMatch.groupValues[1].toInt(), currentDisplayId)
                     }
                 }
@@ -161,6 +164,7 @@ object RootShell {
 
     /** Simpler, more reliable path for specific apps: relaunch the app's launcher activity directly onto a display id.
      *  If the app is already running, we try to move its task instead of starting a new one. */
+    @Suppress("unused")
     fun launchOnDisplay(packageName: String, componentName: String, displayId: Int): Result {
         val taskId = getTaskIdForPackage(packageName)
         return if (taskId != null) {
@@ -220,7 +224,11 @@ object RootShell {
             for (line in r.out) {
                 if (line.contains("displayId=")) {
                     val match = Regex("displayId=(\\d+)").find(line)
-                    currentDisplayId = match?.groupValues?.get(1)?.toInt() ?: -1
+                    match?.let {
+                        currentDisplayId = it.groupValues[1].toInt()
+                    } ?: run {
+                        currentDisplayId = -1
+                    }
                 }
                 if (currentDisplayId == displayId && line.contains("taskId=") && line.contains("visible=true")) {
                     val match = Regex("taskId=(\\d+)").find(line)
@@ -240,7 +248,11 @@ object RootShell {
             for (line in r.out) {
                 if (line.contains("displayId=")) {
                     val match = Regex("displayId=(\\d+)").find(line)
-                    currentDisplayId = match?.groupValues?.get(1)?.toInt() ?: -1
+                    match?.let {
+                        currentDisplayId = it.groupValues[1].toInt()
+                    } ?: run {
+                        currentDisplayId = -1
+                    }
                 }
                 if (currentDisplayId == displayId && line.contains("taskId=") && line.contains("visible=true")) {
                     val pkgMatch = Regex("""taskId=\d+: ([\w.]+)""").find(line)
@@ -252,6 +264,7 @@ object RootShell {
     }
 
     /** Polls for a taskId for a package until it appears or timeout is reached. */
+    @Suppress("unused")
     suspend fun waitForTaskId(packageName: String, timeoutMs: Long = 3000): Int? {
         val startTime = System.currentTimeMillis()
         while (System.currentTimeMillis() - startTime < timeoutMs) {
@@ -263,6 +276,7 @@ object RootShell {
     }
 
     /** Pulls the currently focused/top activity's component name via dumpsys. */
+    @Suppress("unused")
     fun getTopActivity(): String? {
         val r = run("dumpsys activity activities | grep -m1 'topResumedActivity'")
         val line = r.out.firstOrNull() ?: return null
@@ -275,6 +289,7 @@ object RootShell {
         if (dpi == null) run("wm density reset -d $displayId")
         else run("wm density $dpi -d $displayId")
 
+    @Suppress("unused")
     fun setDisplayRotation(displayId: Int, rotationDeg: Int): Result {
         val surfaceRotation = when (rotationDeg) {
             90 -> 1
@@ -285,6 +300,7 @@ object RootShell {
         return run("wm user-rotation -d $displayId lock $surfaceRotation")
     }
 
+    @Suppress("unused")
     fun screenshotDisplay(displayId: Int, outPath: String): Result =
         run("screencap -d $displayId $outPath")
 
@@ -328,7 +344,7 @@ object RootShell {
     /** Applies a horizontal offset to a display while keeping its full bounds valid. */
     fun applyDisplayOffset(displayId: Int, offset: Int): Result {
         if (offset == 0) return resetDisplayArea(displayId)
-        val size = getDisplaySize(displayId) ?: return Result(false, emptyList(), listOf("Could not determine display size"))
+        val size = getDisplaySize(displayId) ?: return Result(ok = false, out = emptyList(), err = listOf("Could not determine display size"))
         val (width, height) = size
         // We set the right and bottom bounds to the actual display size to avoid black screen.
         // Content will be pushed from the left by 'offset'.
