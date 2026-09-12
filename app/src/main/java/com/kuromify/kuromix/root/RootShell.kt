@@ -44,7 +44,7 @@ object RootShell {
     /** Moves a specific task to a display. */
     fun moveTaskToDisplay(taskId: Int, displayId: Int): Result {
         val res = run("service call activity_task 50 i32 $taskId i32 $displayId")
-        if (res.ok && displayId != 0) {
+        if (res.ok && (displayId != 0)) {
             // Wake display if moving to non-zero display
             run("am broadcast -a com.xiaomi.action.REAR_DISPLAY_SWITCH --ez state true")
         }
@@ -53,7 +53,7 @@ object RootShell {
 
     /** Moves an app's current top task onto another display (e.g. the rear/secondary display). */
     fun moveCurrentTaskToDisplay(displayId: Int): Result {
-        val taskId = getTopTaskId() ?: return Result(false, emptyList(), listOf("Could not identify foreground taskId"))
+        val taskId = getTopTaskId() ?: return Result(ok = false, out = emptyList(), err = listOf("Could identify foreground taskId"))
         // Transaction code 50 is common for moveTaskToDisplay in HyperOS/Android 16
         val res = run("service call activity_task 50 i32 $taskId i32 $displayId")
         if (res.ok) {
@@ -70,7 +70,7 @@ object RootShell {
             var currentDisplayId = -1
             for (line in r.out) {
                 val displayMatch = Regex("""displayId=(\d+)""").find(line)
-                if (displayMatch != null) currentDisplayId = displayMatch.groupValues[1].toInt()
+                displayMatch?.let { currentDisplayId = it.groupValues[1].toInt() }
 
                 if (line.contains("visible=true")) {
                     val taskIdMatch = Regex("""taskId=(\d+)""").find(line)

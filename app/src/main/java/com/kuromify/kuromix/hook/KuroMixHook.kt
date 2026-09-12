@@ -133,18 +133,18 @@ class KuroMixHook : IXposedHookLoadPackage {
         val gWalletRow = findRowByText(root, "Google Wallet") ?: return
         
         val currentSetting = android.provider.Settings.System.getString(activity.contentResolver, SETTING_KEY)
-        val isSelected = currentSetting == MI_PAY_VALUE || currentSetting == "mi_pay"
+        val isSelected = (currentSetting == MI_PAY_VALUE || currentSetting == "mi_pay")
         
-        updateSelectionState(gWalletRow, isSelected)
+        updateSelectionState(gWalletRow, selected = isSelected)
 
         gWalletRow.setOnClickListener {
             android.provider.Settings.System.putString(activity.contentResolver, SETTING_KEY, MI_PAY_VALUE)
-            updateSelectionState(gWalletRow, true)
+            updateSelectionState(gWalletRow, selected = true)
             val parent = gWalletRow.parent as? android.view.ViewGroup
-            if (parent != null) {
-                for (i in 0 until parent.childCount) {
-                    val child = parent.getChildAt(i)
-                    if (child != gWalletRow) updateSelectionState(child, false)
+            parent?.let {
+                for (i in 0 until it.childCount) {
+                    val child = it.getChildAt(i)
+                    if (child != gWalletRow) updateSelectionState(child, selected = false)
                 }
             }
         }
@@ -246,6 +246,7 @@ class KuroMixHook : IXposedHookLoadPackage {
                 lpparam.classLoader,
                 "getItems",
                 object : XC_MethodHook() {
+                    @Suppress("UNCHECKED_CAST")
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val items = param.result as? MutableList<Any> ?: return
                         
@@ -501,8 +502,9 @@ class KuroMixHook : IXposedHookLoadPackage {
                 lpparam.classLoader,
                 "updateDynamicWhiteList",
                 "android.content.Context",
-                Int::class.java,
+                Int::class.javaPrimitiveType,
                 object : XC_MethodHook() {
+                    @Suppress("UNCHECKED_CAST")
                     override fun afterHookedMethod(param: MethodHookParam) {
                         if (isAntiKill) {
                             val map = param.result as? MutableMap<String, Boolean> ?: return

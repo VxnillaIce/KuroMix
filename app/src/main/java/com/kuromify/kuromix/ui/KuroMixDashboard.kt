@@ -65,7 +65,7 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
             rootReady = withContext(kotlinx.coroutines.Dispatchers.IO) { 
                 // If current cached shell is not root, close it to force a fresh attempt
                 val cached = Shell.getCachedShell()
-                if (cached != null && !cached.isRoot) {
+                if ((cached != null) && !cached.isRoot) {
                     android.util.Log.d("KuroMixDashboard", "[KUROMIX_LOG] Closing non-root cached shell")
                     cached.close()
                 }
@@ -80,25 +80,30 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
 
     Scaffold(
         topBar = {
+            @Suppress("DEPRECATION")
             SmallTopAppBar(
                 title = "KuroMix",
                 actions = {
-                    IconButton(onClick = {
-                        scope.launch {
-                            withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                val scopeApps = context.resources.getStringArray(R.array.xposed_scope)
-                                scopeApps.forEach { pkg ->
-                                    if (pkg != context.packageName) {
-                                        RootShell.forceStopPackage(pkg)
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    val scopeApps = context.resources.getStringArray(R.array.xposed_scope)
+                                    scopeApps.forEach { pkg ->
+                                        if (pkg != context.packageName) {
+                                            RootShell.forceStopPackage(pkg)
+                                        }
                                     }
                                 }
+                                status = "Scoped apps restarted"
                             }
-                            status = "Scoped apps restarted"
                         }
-                    }) {
+                    ) {
                         Icon(imageVector = Icons.Default.Refresh, contentDescription = "Restart Scoped Apps")
                     }
-                    IconButton(onClick = onNavigateToSettings) {
+                    IconButton(
+                        onClick = onNavigateToSettings
+                    ) {
                         Icon(imageVector = MiuixIcons.Settings, contentDescription = "Settings")
                     }
                 }
