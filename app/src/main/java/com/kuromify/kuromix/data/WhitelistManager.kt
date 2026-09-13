@@ -7,7 +7,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 private val Context.dataStore by preferencesDataStore(name = "kuromix_prefs")
@@ -21,8 +20,8 @@ data class AppConfig(
 
 class WhitelistManager(private val context: Context) {
 
-    private val json = Json { 
-        ignoreUnknownKeys = true 
+    private val json = Json {
+        ignoreUnknownKeys = true
         encodeDefaults = true
     }
 
@@ -72,7 +71,7 @@ class WhitelistManager(private val context: Context) {
 
     val mirrorModuleEnabledFlow: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
-            preferences[MODULE_MIRROR_ENABLED_KEY] ?: true
+            preferences[MODULE_MIRROR_ENABLED_KEY] ?: false
         }
 
     val keepAwakeEnabledFlow: Flow<Boolean> = context.dataStore.data
@@ -95,7 +94,7 @@ class WhitelistManager(private val context: Context) {
             val jsonStr = preferences[PER_APP_CONFIG_KEY] ?: return@map emptyMap<String, AppConfig>()
             try {
                 json.decodeFromString<Map<String, AppConfig>>(jsonStr)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 emptyMap()
             }
         }

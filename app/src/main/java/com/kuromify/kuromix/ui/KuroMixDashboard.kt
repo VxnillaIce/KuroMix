@@ -56,7 +56,7 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
     var rearDisplayId by remember { mutableStateOf(rearDisplays.primaryRearDisplayId()) }
     var rootReady by remember { mutableStateOf<Boolean?>(null) }
     var status by remember { mutableStateOf("") }
-    val mirrorModuleEnabled by whitelistManager.mirrorModuleEnabledFlow.collectAsState(initial = true)
+    val mirrorModuleEnabled by whitelistManager.mirrorModuleEnabledFlow.collectAsState(initial = false)
     val replaceMipayEnabled by whitelistManager.replaceMipayEnabledFlow.collectAsState(initial = false)
     var isModuleActive by remember { mutableStateOf(RootShell.isModuleActive()) }
     var showRestartDialog by remember { mutableStateOf(false) }

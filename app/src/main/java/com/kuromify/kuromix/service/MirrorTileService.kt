@@ -1,7 +1,6 @@
 package com.kuromify.kuromix.service
 
 import android.content.Intent
-import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.util.Log
@@ -15,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Quick Settings Tile to mirror the current foreground app to the rear display.
@@ -95,7 +95,7 @@ class MirrorTileService : TileService() {
                 RootShell.suppressSubScreenLauncher()
             }
             
-            delay(200) // Synchronization delay
+            delay(200.milliseconds) // Synchronization delay
 
             // 5. Migrate task
             Log.d(TAG, "[KUROMIX_LOG] Moving task $taskId to display $displayId")
@@ -116,14 +116,10 @@ class MirrorTileService : TileService() {
         
         if (rearManager.isRearDisplayPresent()) {
             tile.state = Tile.STATE_INACTIVE
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                tile.subtitle = "Ready to mirror"
-            }
+            tile.subtitle = "Ready to mirror"
         } else {
             tile.state = Tile.STATE_UNAVAILABLE
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                tile.subtitle = "Rear display not found"
-            }
+            tile.subtitle = "Rear display not found"
         }
         tile.updateTile()
     }

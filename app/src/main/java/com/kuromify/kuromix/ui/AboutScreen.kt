@@ -81,10 +81,6 @@ fun AboutScreen() {
                 SmallTitle(text = "ABOUT APP")
                 Card {
                     BasicComponent(
-                        title = "KuroMix Version",
-                        summary = "1.0.0-ULTRA"
-                    )
-                    BasicComponent(
                         title = "Developer",
                         summary = "Vxnilla Ice"
                     )

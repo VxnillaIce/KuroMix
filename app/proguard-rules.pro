@@ -1,0 +1,2 @@
+-keep class com.kuromify.kuromix.hook.KuroMixHook { *; }
+-keep class com.kuromify.kuromix.root.RootShell { *; }
