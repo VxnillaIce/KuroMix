@@ -1,6 +1,7 @@
 package com.kuromify.kuromix.ui
 
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -57,11 +58,11 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
     val rearDisplays = remember { RearDisplayManager(context) }
     var rearDisplayId by remember { mutableStateOf(rearDisplays.primaryRearDisplayId()) }
     var rootReady by remember { mutableStateOf<Boolean?>(null) }
-    var status by remember { mutableStateOf("") }
     val mirrorModuleEnabled by whitelistManager.mirrorModuleEnabledFlow.collectAsState(initial = false)
     val replaceMipayEnabled by whitelistManager.replaceMipayEnabledFlow.collectAsState(initial = false)
     var isModuleActive by remember { mutableStateOf(RootShell.isModuleActive()) }
     var showRestartDialog by remember { mutableStateOf(false) }
+    var showRestartFailedDialog by remember { mutableStateOf(false) }
 
     fun refreshState() {
         scope.launch {
@@ -201,19 +202,6 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
                 }
             }
 
-            if (status.isNotEmpty()) {
-                item {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp)
-                            .padding(top = 16.dp)
-                    ) {
-                        Text(status, modifier = Modifier.padding(12.dp))
-                    }
-                }
-            }
-
             item {
                 Spacer(Modifier.height(32.dp))
             }
@@ -225,85 +213,211 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
             onDismiss = { showRestartDialog = false },
             onRestart = { pkgs ->
                 scope.launch {
-                    withContext(Dispatchers.IO) {
-                        pkgs.forEach { RootShell.forceStopPackage(it) }
+                    val restartSucceeded = withContext(Dispatchers.IO) {
+                        pkgs
+                            .map { RootShell.forceStopPackage(it) }
+                            .all { it.ok }
                     }
-                    status = "Selected apps restarted"
+
                     showRestartDialog = false
+
+                    if (restartSucceeded) {
+                        Toast.makeText(
+                            context,
+                            "Restarted",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        showRestartFailedDialog = true
+                    }
                 }
+            }
+        )
+    }
+
+    if (showRestartFailedDialog) {
+        RestartFailedDialog(
+            onDismiss = {
+                showRestartFailedDialog = false
             }
         )
     }
 }
 
 @Composable
-fun RestartAppsDialog(onDismiss: () -> Unit, onRestart: (List<String>) -> Unit) {
+fun RestartAppsDialog(
+    onDismiss: () -> Unit,
+    onRestart: (List<String>) -> Unit
+) {
     val groups = listOf(
-        "System UI" to listOf("com.android.systemui"),
-        "Settings" to listOf("com.android.settings"),
-        "Subscreen Center" to listOf("com.xiaomi.subscreencenter"),
-        "GPay Scopes" to listOf(
-            "com.miui.miinput",
-            "com.miui.securitycore",
-            "com.android.nfc",
-            "com.miui.tsmclient",
-            "com.unionpay.tsmservice.mi",
-            "com.miui.nextpay"
+        RestartGroup(
+            title = "System UI",
+            summary = "com.android.systemui",
+            packages = listOf("com.android.systemui")
+        ),
+        RestartGroup(
+            title = "Settings",
+            summary = "com.android.settings",
+            packages = listOf("com.android.settings")
+        ),
+        RestartGroup(
+            title = "Subscreen Center",
+            summary = "com.xiaomi.subscreencenter",
+            packages = listOf("com.xiaomi.subscreencenter")
+        ),
+        RestartGroup(
+            title = "GPay Scopes",
+            summary = "6 apps",
+            packages = listOf(
+                "com.miui.miinput",
+                "com.miui.securitycore",
+                "com.android.nfc",
+                "com.miui.tsmclient",
+                "com.unionpay.tsmservice.mi",
+                "com.miui.nextpay"
+            )
         )
     )
-    val selectedPackages = remember { mutableStateListOf<String>() }
+
+    val selectedPackages = remember {
+        mutableStateListOf<String>()
+    }
+
+    val allPackages = remember(groups) {
+        groups.flatMap { it.packages }
+    }
+
+    val allSelected =
+        allPackages.isNotEmpty() &&
+            allPackages.all { selectedPackages.contains(it) }
 
     OverlayDialog(
         show = true,
         title = "Restart Scoped Apps",
         onDismissRequest = onDismiss
     ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Card {
-                groups.forEach { (name, pkgs) ->
-                    val isSelected = pkgs.all { selectedPackages.contains(it) }
-                    BasicComponent(
-                        title = name,
-                        summary = if (pkgs.size > 1) "${pkgs.size} apps" else pkgs.first(),
-                        endActions = {
-                            Checkbox(
-                                state = if (isSelected) ToggleableState.On else ToggleableState.Off,
-                                onClick = {
-                                    if (!isSelected) {
-                                        pkgs.forEach {
-                                            if (!selectedPackages.contains(it)) selectedPackages.add(it)
+        Column {
+            groups.forEach { group ->
+                val isSelected =
+                    group.packages.all {
+                        selectedPackages.contains(it)
+                    }
+
+                BasicComponent(
+                    title = group.title,
+                    summary = group.summary,
+                    endActions = {
+                        Checkbox(
+                            state = if (isSelected) {
+                                ToggleableState.On
+                            } else {
+                                ToggleableState.Off
+                            },
+                            onClick = {
+                                if (isSelected) {
+                                    group.packages.forEach {
+                                        selectedPackages.remove(it)
+                                    }
+                                } else {
+                                    group.packages.forEach {
+                                        if (!selectedPackages.contains(it)) {
+                                            selectedPackages.add(it)
                                         }
-                                    } else {
-                                        pkgs.forEach { selectedPackages.remove(it) }
                                     }
                                 }
-                            )
-                        },
-                        onClick = {
-                            if (!isSelected) {
-                                pkgs.forEach {
-                                    if (!selectedPackages.contains(it)) selectedPackages.add(it)
+                            }
+                        )
+                    },
+                    onClick = {
+                        if (isSelected) {
+                            group.packages.forEach {
+                                selectedPackages.remove(it)
+                            }
+                        } else {
+                            group.packages.forEach {
+                                if (!selectedPackages.contains(it)) {
+                                    selectedPackages.add(it)
                                 }
-                            } else {
-                                pkgs.forEach { selectedPackages.remove(it) }
                             }
                         }
-                    )
-                }
+                    }
+                )
             }
-            Spacer(Modifier.height(24.dp))
+
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Button(onClick = { onRestart(selectedPackages.toList()) }) {
-                    Text("Restart")
-                }
+                TextButton(
+                    text = if (allSelected) {
+                        "Deselect All"
+                    } else {
+                        "Select All"
+                    },
+                    onClick = {
+                        if (allSelected) {
+                            selectedPackages.clear()
+                        } else {
+                            selectedPackages.clear()
+                            selectedPackages.addAll(allPackages)
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+
+                Spacer(
+                    modifier = Modifier.width(16.dp)
+                )
+
+                TextButton(
+                    text = "Restart",
+                    onClick = {
+                        if (selectedPackages.isNotEmpty()) {
+                            onRestart(selectedPackages.toList())
+                        }
+                    },
+                    enabled = selectedPackages.isNotEmpty(),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary()
+                )
             }
-            Spacer(Modifier.height(16.dp))
         }
     }
 }
+
+@Composable
+private fun RestartFailedDialog(
+    onDismiss: () -> Unit
+) {
+    OverlayDialog(
+        show = true,
+        title = "Tips",
+        onDismissRequest = onDismiss
+    ) {
+        Column {
+            Text(
+                text = "Restart failed, please check your SU permission"
+            )
+
+            TextButton(
+                text = "OK",
+                onClick = onDismiss,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp),
+                colors = ButtonDefaults.textButtonColorsPrimary()
+            )
+        }
+    }
+}
+
+private data class RestartGroup(
+    val title: String,
+    val summary: String,
+    val packages: List<String>
+)
 
 @Composable
 private fun ActivationStatusCard(
