@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -114,17 +115,13 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Card(
                     modifier = Modifier.padding(horizontal = 12.dp)
                 ) {
-                    BasicComponent(
+                    OverlayDropdownPreference(
                         title = "Dark Mode",
-                        summary = when (darkModePref) {
-                            1 -> "Light"
-                            2 -> "Dark"
-                            else -> "Follow System"
-                        },
-                        onClick = {
+                        items = listOf("Follow System", "Light", "Dark"),
+                        selectedIndex = darkModePref.coerceIn(0, 2),
+                        onSelectedIndexChange = { index ->
                             scope.launch {
-                                val next = (darkModePref + 1) % 3
-                                whitelistManager.setDarkModePref(next)
+                                whitelistManager.setDarkModePref(index)
                             }
                         }
                     )
