@@ -34,7 +34,7 @@ internal fun KuroMixBlurredBar(
             Modifier.textureBlur(
                 backdrop = backdrop,
                 shape = RectangleShape,
-                blurRadius = 36f,
+                blurRadius = BlurDefaults.BlurRadius,
                 noiseCoefficient = BlurDefaults.NoiseCoefficient,
                 colors = BlurColors()
             )
