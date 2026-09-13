@@ -308,6 +308,7 @@ fun AppConfigBottomSheet(
     OverlayBottomSheet(
         show = showSheet,
         title = "Config: ${app.label}",
+        defaultWindowInsetsPadding = false,
         startAction = {
             IconButton(
                 onClick = {
@@ -339,7 +340,11 @@ fun AppConfigBottomSheet(
         onDismissFinished = onDismiss
     ) {
         SmallTitle(
-            text = "DISPLAY SETTINGS"
+            text = "DISPLAY SETTINGS",
+            insideMargin = PaddingValues(
+                horizontal = 16.dp,
+                vertical = 8.dp
+            )
         )
 
         Card(
@@ -405,6 +410,16 @@ fun AppConfigBottomSheet(
                 }
             )
         }
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        Spacer(
+            modifier = Modifier.windowInsetsBottomHeight(
+                WindowInsets.navigationBars
+            )
+        )
     }
 }
 
