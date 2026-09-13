@@ -32,18 +32,22 @@ fun AboutScreen(bottomPadding: Dp = 0.dp) {
     }
 
     val scrollBehavior = MiuixScrollBehavior()
-    val backdrop = rememberKuroMixBackdrop()
     val blurSupported = rememberKuroMixBlurSupported()
+    val backdrop = rememberKuroMixBackdrop(blurSupported)
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = "About",
-                modifier = Modifier.kuroMixBlur(backdrop, blurSupported),
-                color = if (blurSupported) Color.Transparent else MiuixTheme.colorScheme.surface,
-                largeTitle = "About",
-                scrollBehavior = scrollBehavior
-            )
+            KuroMixBlurredBar(
+                backdrop = backdrop,
+                blurEnabled = blurSupported
+            ) {
+                TopAppBar(
+                    title = "About",
+                    color = if (blurSupported) Color.Transparent else MiuixTheme.colorScheme.surface,
+                    largeTitle = "About",
+                    scrollBehavior = scrollBehavior
+                )
+            }
         }
     ) { padding ->
         LazyColumn(

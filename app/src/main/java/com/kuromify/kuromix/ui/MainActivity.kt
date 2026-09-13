@@ -8,6 +8,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -39,6 +46,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) {}
 
+    @OptIn(ExperimentalAnimationApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val whitelistManager = WhitelistManager(this)
@@ -56,8 +64,8 @@ class MainActivity : ComponentActivity() {
             val pagerState = rememberPagerState(pageCount = { 3 })
             val coroutineScope = rememberCoroutineScope()
             var isSettingsOpen by remember { mutableStateOf(false) }
-            val bottomBackdrop = rememberKuroMixBackdrop()
             val blurSupported = rememberKuroMixBlurSupported()
+            val bottomBackdrop = rememberKuroMixBackdrop(blurSupported)
             val darkModePref by whitelistManager.darkModePrefFlow.collectAsState(initial = 0)
             val themeController = remember(darkModePref) {
                 ThemeController(
@@ -80,63 +88,81 @@ class MainActivity : ComponentActivity() {
             }
 
             MiuixTheme(controller = themeController) {
-                if (isSettingsOpen) {
-                    SettingsScreen(onBack = { isSettingsOpen = false })
-                } else {
-                    Scaffold(
-                        bottomBar = {
-                            NavigationBar(
-                                modifier = Modifier.kuroMixBlur(bottomBackdrop, blurSupported),
-                                color = if (blurSupported) Color.Transparent else MiuixTheme.colorScheme.surface,
-                                showDivider = !blurSupported
-                            ) {
-                                NavigationBarItem(
-                                    selected = pagerState.currentPage == 0,
-                                    onClick = {
-                                        if (pagerState.currentPage != 0) {
-                                            coroutineScope.launch { pagerState.animateScrollToPage(0) }
-                                        }
-                                    },
-                                    icon = MiuixIcons.GridView,
-                                    label = "Dashboard"
-                                )
-                                NavigationBarItem(
-                                    selected = pagerState.currentPage == 1,
-                                    onClick = {
-                                        if (pagerState.currentPage != 1) {
-                                            coroutineScope.launch { pagerState.animateScrollToPage(1) }
-                                        }
-                                    },
-                                    icon = MiuixIcons.ScreenMirroring,
-                                    label = "Quick Cast"
-                                )
-                                NavigationBarItem(
-                                    selected = pagerState.currentPage == 2,
-                                    onClick = {
-                                        if (pagerState.currentPage != 2) {
-                                            coroutineScope.launch { pagerState.animateScrollToPage(2) }
-                                        }
-                                    },
-                                    icon = MiuixIcons.Info,
-                                    label = "About"
-                                )
-                            }
+                AnimatedContent(
+                    targetState = isSettingsOpen,
+                    transitionSpec = {
+                        if (targetState) {
+                            (slideInHorizontally { it } + fadeIn()) togetherWith
+                                (slideOutHorizontally { -it / 3 } + fadeOut())
+                        } else {
+                            (slideInHorizontally { -it / 3 } + fadeIn()) togetherWith
+                                (slideOutHorizontally { it } + fadeOut())
                         }
-                    ) { padding ->
-                        val bottomPadding = padding.calculateBottomPadding()
-                        HorizontalPager(
-                            state = pagerState,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .kuroMixBackdrop(bottomBackdrop)
-                        ) { page ->
-                            when (page) {
-                                0 -> KuroMixDashboard(
-                                    onNavigateToSettings = { isSettingsOpen = true },
-                                    bottomPadding = bottomPadding
-                                )
-                                1 -> QuickCastScreen(bottomPadding = bottomPadding)
-                                2 -> AboutScreen(bottomPadding = bottomPadding)
+                    },
+                    label = "settingsTransition"
+                ) { settingsOpen ->
+                    if (settingsOpen) {
+                        SettingsScreen(onBack = { isSettingsOpen = false })
+                    } else {
+                        Scaffold(
+                            bottomBar = {
+                                KuroMixBlurredBar(
+                                    backdrop = bottomBackdrop,
+                                    blurEnabled = blurSupported
+                                ) {
+                                    NavigationBar(
+                                        color = if (blurSupported) Color.Transparent else MiuixTheme.colorScheme.surface,
+                                        showDivider = !blurSupported
+                                    ) {
+                                        NavigationBarItem(
+                                            selected = pagerState.currentPage == 0,
+                                            onClick = {
+                                                if (pagerState.currentPage != 0) {
+                                                    coroutineScope.launch { pagerState.animateScrollToPage(0) }
+                                                }
+                                            },
+                                            icon = MiuixIcons.GridView,
+                                            label = "Dashboard"
+                                        )
+                                        NavigationBarItem(
+                                            selected = pagerState.currentPage == 1,
+                                            onClick = {
+                                                if (pagerState.currentPage != 1) {
+                                                    coroutineScope.launch { pagerState.animateScrollToPage(1) }
+                                                }
+                                            },
+                                            icon = MiuixIcons.ScreenMirroring,
+                                            label = "Quick Cast"
+                                        )
+                                        NavigationBarItem(
+                                            selected = pagerState.currentPage == 2,
+                                            onClick = {
+                                                if (pagerState.currentPage != 2) {
+                                                    coroutineScope.launch { pagerState.animateScrollToPage(2) }
+                                                }
+                                            },
+                                            icon = MiuixIcons.Info,
+                                            label = "About"
+                                        )
+                                    }
+                                }
+                            }
+                        ) { padding ->
+                            val bottomPadding = padding.calculateBottomPadding()
+                            HorizontalPager(
+                                state = pagerState,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .kuroMixBackdrop(bottomBackdrop)
+                            ) { page ->
+                                when (page) {
+                                    0 -> KuroMixDashboard(
+                                        onNavigateToSettings = { isSettingsOpen = true },
+                                        bottomPadding = bottomPadding
+                                    )
+                                    1 -> QuickCastScreen(bottomPadding = bottomPadding)
+                                    2 -> AboutScreen(bottomPadding = bottomPadding)
+                                }
                             }
                         }
                     }

@@ -73,39 +73,43 @@ fun QuickCastScreen(bottomPadding: Dp = 0.dp) {
     }
 
     val scrollBehavior = MiuixScrollBehavior()
-    val backdrop = rememberKuroMixBackdrop()
     val blurSupported = rememberKuroMixBlurSupported()
+    val backdrop = rememberKuroMixBackdrop(blurSupported)
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = "Quick Cast",
-                modifier = Modifier.kuroMixBlur(backdrop, blurSupported),
-                color = if (blurSupported) Color.Transparent else MiuixTheme.colorScheme.surface,
-                largeTitle = "Quick Cast",
-                scrollBehavior = scrollBehavior,
-                actions = {
-                    if (isEditMode) {
-                        val allEnabled = apps.all { perAppConfig[it.packageName]?.enabled ?: true }
-                        IconButton(onClick = {
-                            scope.launch {
-                                whitelistManager.updateBatchAppConfig(apps.map { it.packageName }, !allEnabled)
+            KuroMixBlurredBar(
+                backdrop = backdrop,
+                blurEnabled = blurSupported
+            ) {
+                TopAppBar(
+                    title = "Quick Cast",
+                    color = if (blurSupported) Color.Transparent else MiuixTheme.colorScheme.surface,
+                    largeTitle = "Quick Cast",
+                    scrollBehavior = scrollBehavior,
+                    actions = {
+                        if (isEditMode) {
+                            val allEnabled = apps.all { perAppConfig[it.packageName]?.enabled ?: true }
+                            IconButton(onClick = {
+                                scope.launch {
+                                    whitelistManager.updateBatchAppConfig(apps.map { it.packageName }, !allEnabled)
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = if (allEnabled) Icons.Default.RemoveDone else Icons.Default.DoneAll,
+                                    contentDescription = if (allEnabled) "Deselect All" else "Select All"
+                                )
                             }
-                        }) {
+                        }
+                        IconButton(onClick = { isEditMode = !isEditMode }) {
                             Icon(
-                                imageVector = if (allEnabled) Icons.Default.RemoveDone else Icons.Default.DoneAll,
-                                contentDescription = if (allEnabled) "Deselect All" else "Select All"
+                                imageVector = if (isEditMode) MiuixIcons.Ok else MiuixIcons.Edit,
+                                contentDescription = "Edit"
                             )
                         }
                     }
-                    IconButton(onClick = { isEditMode = !isEditMode }) {
-                        Icon(
-                            imageVector = if (isEditMode) MiuixIcons.Ok else MiuixIcons.Edit,
-                            contentDescription = "Edit"
-                        )
-                    }
-                }
-            )
+                )
+            }
         }
     ) { padding ->
         LazyColumn(
