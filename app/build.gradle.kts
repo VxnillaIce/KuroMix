@@ -18,7 +18,7 @@ android {
         targetSdk = 37
         versionCode = ciVersionCode
         versionName = releaseTag
-            ?: commitSha?.let { "0.1-$it" }
+            ?: commitSha?.let { "1.0.0-ULTRA-$it" }
             ?: "0.1.0"
     }
 
