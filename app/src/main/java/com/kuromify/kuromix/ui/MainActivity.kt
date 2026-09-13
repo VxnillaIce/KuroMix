@@ -150,7 +150,14 @@ class MainActivity : ComponentActivity() {
                                         bottomPadding = bottomPadding
                                     )
                                     1 -> QuickCastScreen(bottomPadding = bottomPadding)
-                                    2 -> AboutScreen(bottomPadding = bottomPadding)
+                                    2 -> AboutScreen(
+                                        bottomPadding = bottomPadding,
+                                        onBack = {
+                                            coroutineScope.launch {
+                                                pagerState.animateScrollToPage(0)
+                                            }
+                                        }
+                                    )
                                 }
                             }
                         }

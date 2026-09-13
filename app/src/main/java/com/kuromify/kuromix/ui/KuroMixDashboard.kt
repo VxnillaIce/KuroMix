@@ -37,7 +37,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -96,7 +95,7 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
                 actions = {
                     IconButton(onClick = { showRestartDialog = true }) {
                         Icon(
-                            imageVector = MiuixIcons.Refresh,
+                            imageVector = Icons.Default.Refresh,
                             contentDescription = "Restart Scoped Apps"
                         )
                     }
@@ -217,14 +216,14 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
                 scope.launch {
                     val restartSucceeded = withContext(Dispatchers.IO) {
                         pkgs
-                            .map { pkg ->
-                                if (pkg == "com.android.systemui") {
-                                    Shell.cmd("killAll -9 $pkg").exec().isSuccess
+                            .map { packageName ->
+                                if (packageName == "com.android.systemui") {
+                                    RootShell.restartSystemUi()
                                 } else {
-                                    RootShell.forceStopPackage(pkg).ok
+                                    RootShell.forceStopPackage(packageName)
                                 }
                             }
-                            .all { it }
+                            .all { it.ok }
                     }
 
                     showRestartDialog = false
@@ -297,7 +296,7 @@ fun RestartAppsDialog(
 
     val allSelected =
         allPackages.isNotEmpty() &&
-                allPackages.all { selectedPackages.contains(it) }
+            allPackages.all { selectedPackages.contains(it) }
 
     OverlayDialog(
         show = true,

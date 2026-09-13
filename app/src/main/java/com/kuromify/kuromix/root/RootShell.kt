@@ -1,6 +1,7 @@
 package com.kuromify.kuromix.root
 
 import com.topjohnwu.superuser.Shell
+import java.io.DataOutputStream
 
 /**
  * Thin wrapper around libsu for the handful of privileged operations KuroMix
@@ -36,6 +37,40 @@ object RootShell {
     /** Force-stops a package using root. */
     fun forceStopPackage(packageName: String): Result {
         return run("am force-stop $packageName")
+    }
+
+    fun restartSystemUi(): Result {
+        return runCatching {
+            val process = ProcessBuilder("su")
+                .redirectErrorStream(true)
+                .start()
+
+            DataOutputStream(process.outputStream).use { output ->
+                output.writeBytes("PIDS=\$(pidof com.android.systemui)\n")
+                output.writeBytes("if [ -z \"\$PIDS\" ]; then exit 1; fi\n")
+                output.writeBytes("kill -9 \$PIDS\n")
+                output.writeBytes("exit\n")
+                output.flush()
+            }
+
+            val output = process.inputStream
+                .bufferedReader()
+                .use { it.readText() }
+
+            val exitCode = process.waitFor()
+
+            Result(
+                ok = exitCode == 0,
+                out = output.lines().filter { it.isNotBlank() },
+                err = emptyList()
+            )
+        }.getOrElse {
+            Result(
+                ok = false,
+                out = emptyList(),
+                err = listOf(it.message ?: it.javaClass.simpleName)
+            )
+        }
     }
 
     /** Moves a specific task to a display. */
