@@ -10,19 +10,19 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
 /**
  * LSPosed entry point for KuroMix.
  *
- * This module hooks system_server and SubScreenCenter to keep the rear display alive
- * and improve its background persistence on Xiaomi HyperOS.
+ * DIAGNOSTIC BUILD: hookNotificationFilterHelper() now dumps every real
+ * method on miui.util.NotificationFilterHelper to logcat before attempting
+ * any hooks, since the guessed method names (isImportantNotification,
+ * isAllowedShowFocus, isSupportFocus, isSystemApp,
+ * isAllowedShowResidentNotification, isSupportResidentNotification) were
+ * all confirmed wrong via NoSuchMethodError on this build.
+ * NotificationSettingsHelper hooks removed — that class doesn't exist
+ * here (ClassNotFoundException).
  *
- * DIAGNOSTIC LOGGING: every findAndHookMethod call now logs success or
- * failure explicitly instead of silently swallowing Throwable. After
- * install + reboot, check LSPosed Manager > Logs (or `adb logcat | grep
- * KUROMIX_HOOK`) and search for "FAILED" to see exactly which internal
- * class/method names don't match on your build. These are undocumented
- * OEM-internal classes that vary across HyperOS versions/builds — if
- * something fails, the fix is to decompile the actual system APK/jar
- * from your device (jadx on Settings.apk, SystemUIGoogle.apk or
- * SystemUI.apk, miui-services.jar / framework.jar from /system) and
- * find the real current name, not to guess again.
+ * After install + reboot, run:
+ *   adb logcat -d | findstr KUROMIX_HOOK
+ * and look for the block between "==== Methods of" and "==== End methods
+ * of" — that's the real API to hook against.
  */
 class KuroMixHook : IXposedHookLoadPackage {
 
@@ -38,16 +38,34 @@ class KuroMixHook : IXposedHookLoadPackage {
         private val TARGET_PKGS = setOf("com.miui.tsmclient", "com.unionpay.tsmservice.mi", "com.miui.nextpay", "com.android.nfc")
     }
 
-    // -------------------------------------------------------------------
-    // Logging helper — wraps a hook attempt, logs success or the exact
-    // failure reason instead of swallowing it silently.
-    // -------------------------------------------------------------------
     private fun tryHook(label: String, block: () -> Unit) {
         try {
             block()
             XposedBridge.log("$TAG: $LOG OK   -> $label")
         } catch (e: Throwable) {
             XposedBridge.log("$TAG: $LOG FAILED -> $label :: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    /**
+     * Reflects on a class and logs every declared method's name, param
+     * types, and return type. Used to discover the real API of internal
+     * OEM classes instead of guessing.
+     */
+    @Suppress("SameParameterValue")
+    private fun dumpClassMethods(lpparam: XC_LoadPackage.LoadPackageParam, className: String) {
+        try {
+            val clazz = XposedHelpers.findClass(className, lpparam.classLoader)
+            XposedBridge.log("$TAG: $LOG ==== Methods of $className (${lpparam.packageName}) ====")
+            clazz.declaredMethods
+                .sortedBy { it.name }
+                .forEach { m ->
+                    val params = m.parameterTypes.joinToString(", ") { it.simpleName }
+                    XposedBridge.log("$TAG: $LOG   ${m.name}($params): ${m.returnType.simpleName}")
+                }
+            XposedBridge.log("$TAG: $LOG ==== End methods of $className ====")
+        } catch (e: Throwable) {
+            XposedBridge.log("$TAG: $LOG FAILED to dump $className :: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
 
@@ -145,11 +163,14 @@ class KuroMixHook : IXposedHookLoadPackage {
     }
 
     // =====================================================================
-    // Shared: NotificationFilterHelper whitelist hooks.
-    // Was previously duplicated identically in hookSettingsUI, hookSystemUI,
-    // hookSystemServer, and hookSubScreenCenter — now one place to read logs from.
+    // NotificationFilterHelper — DIAGNOSTIC MODE.
+    // Dumps the real method list first; the hooks below are the OLD
+    // guessed names and are expected to still fail until you send back
+    // the dump output and I rewrite these against the real signatures.
     // =====================================================================
     private fun hookNotificationFilterHelper(lpparam: XC_LoadPackage.LoadPackageParam) {
+        dumpClassMethods(lpparam, "miui.util.NotificationFilterHelper")
+
         val filterHelperClass = try {
             XposedHelpers.findClass("miui.util.NotificationFilterHelper", lpparam.classLoader)
         } catch (e: Throwable) {
@@ -207,10 +228,6 @@ class KuroMixHook : IXposedHookLoadPackage {
         }
     }
 
-    // =====================================================================
-    // Shared: FocusNotificationManager whitelist hook.
-    // Was duplicated identically in hookSystemUI, hookSystemServer, hookSubScreenCenter.
-    // =====================================================================
     private fun hookFocusNotificationManager(lpparam: XC_LoadPackage.LoadPackageParam) {
         tryHook("FocusNotificationManager.isFocusNotificationAllowed") {
             val focusManagerClass = "com.miui.systemui.notification.FocusNotificationManager"
@@ -232,10 +249,6 @@ class KuroMixHook : IXposedHookLoadPackage {
         }
     }
 
-    // =====================================================================
-    // Shared: double-click power key -> Google Wallet launch.
-    // Was duplicated (with slightly different bodies) in hookSystemUI and hookSystemServer.
-    // =====================================================================
     private fun hookPowerKeyDoubleClick(lpparam: XC_LoadPackage.LoadPackageParam) {
         tryHook("MiuiPhoneWindowManager.powerPress") {
             val windowManagerClass = "com.android.server.policy.MiuiPhoneWindowManager"
@@ -267,32 +280,8 @@ class KuroMixHook : IXposedHookLoadPackage {
     private fun hookSettingsUI(lpparam: XC_LoadPackage.LoadPackageParam) {
         val isReplaceEnabled = getSysProp(lpparam, "persist.kuromix.replace_mipay")
 
-        // Force allow Focus/Live Update toggles for KuroMix in Settings
         hookNotificationFilterHelper(lpparam)
-
-        val settingsHelperClass = try {
-            XposedHelpers.findClass("com.miui.notification.NotificationSettingsHelper", lpparam.classLoader)
-        } catch (e: Throwable) {
-            XposedBridge.log("$TAG: $LOG FAILED -> findClass(com.miui.notification.NotificationSettingsHelper) :: ${e.javaClass.simpleName}: ${e.message}")
-            null
-        }
-
-        if (settingsHelperClass != null) {
-            tryHook("NotificationSettingsHelper.isResidentNotificationSupported") {
-                XposedHelpers.findAndHookMethod(settingsHelperClass, "isResidentNotificationSupported", "android.content.Context", String::class.java, object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (param.args[1] == KUROMIX_PKG) param.result = true
-                    }
-                })
-            }
-            tryHook("NotificationSettingsHelper.isFocusNotificationSupported") {
-                XposedHelpers.findAndHookMethod(settingsHelperClass, "isFocusNotificationSupported", "android.content.Context", String::class.java, object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (param.args[1] == KUROMIX_PKG) param.result = true
-                    }
-                })
-            }
-        }
+        // NotificationSettingsHelper removed — ClassNotFoundException on this build.
 
         if (!isReplaceEnabled) return
 

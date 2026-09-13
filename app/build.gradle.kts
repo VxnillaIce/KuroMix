@@ -1,7 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
-    id("org.jetbrains.kotlin.plugin.serialization") version "2.4.10"
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.4.20"
 }
 
 android {
@@ -19,17 +19,10 @@ android {
     buildFeatures {
         compose = true
     }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-        }
     }
     buildTypes {
         release {
@@ -38,42 +31,50 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(
+            org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+        )
+    }
+}
+
 dependencies {
     // Compose
-    implementation(platform("androidx.compose:compose-bom:2024.09.00"))
-    implementation("androidx.activity:activity-compose:1.9.2")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
+    implementation(platform(libs.androidx.compose.bom.v20240900))
+    implementation(libs.androidx.activity.compose.v192)
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.tooling.preview)
+    implementation(libs.androidx.material3)
+    implementation(libs.androidx.core.ktx.v1170)
+    implementation(libs.androidx.lifecycle.runtime.ktx.v284)
 
     // HyperOS-styled Compose UI kit
-    implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.3")
-    implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.3")
-    implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.3")
-    implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.3")
-    implementation("top.yukonga.miuix.kmp:miuix-navigation3-ui-android:0.9.3")
+    implementation(libs.miuix.ui.android)
+    implementation(libs.miuix.preference.android)
+    implementation(libs.miuix.icons.android)
+    implementation(libs.miuix.blur.android)
+    implementation(libs.miuix.navigation3.ui.android)
 
     // Material Icons
-    implementation("androidx.compose.material:material-icons-core")
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation(libs.androidx.compose.material.icons.core)
+    implementation(libs.androidx.compose.material.icons.extended)
 
     // DataStore for preferences and whitelist
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation(libs.androidx.datastore.preferences)
 
     // Serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation(libs.kotlinx.serialization.json)
 
     // Navigation 3
-    implementation("androidx.navigation3:navigation3-runtime:1.1.4")
+    implementation(libs.androidx.navigation3.runtime)
 
     // Root shell access (su exec, output parsing, root service)
-    implementation("com.github.topjohnwu.libsu:core:5.2.2")
-    implementation("com.github.topjohnwu.libsu:service:5.2.2")
+    implementation(libs.core)
+    implementation(libs.service)
 
     // HyperIsland ToolKit for Xiaomi Super Island
-    implementation("io.github.d4viddf:hyperisland_kit:0.4.4")
+    implementation(libs.hyperisland.kit)
 
     // Xposed/LSPosed API — hooks are compiled against this, provided by the
     // framework at runtime on the rooted device, never bundled into the APK.

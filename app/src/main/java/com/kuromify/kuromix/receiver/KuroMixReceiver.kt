@@ -3,6 +3,7 @@ package com.kuromify.kuromix.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import com.kuromify.kuromix.manager.RearDisplayManager
 import com.kuromify.kuromix.notification.SuperIslandManager
 import com.kuromify.kuromix.service.MirrorMonitorService
 import com.kuromify.kuromix.root.RootShell
@@ -22,15 +23,20 @@ class KuroMixReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == ACTION_STOP_MIRROR) {
             CoroutineScope(Dispatchers.IO).launch {
-                // Find the task on the rear display (ID: 1) and pull it back
-                val taskId = RootShell.getTaskIdOnDisplay(1)
+                val rearManager = RearDisplayManager(context.applicationContext)
+                val displayId = rearManager.primaryRearDisplayId() ?: 1
+
+                // 1. Find the task that is actually ON the rear display
+                val taskId = RootShell.getTaskIdOnDisplay(displayId)
+                
                 if (taskId != null) {
+                    // 2. Move it back to primary (0)
                     RootShell.moveTaskToDisplay(taskId, 0)
                 }
 
-                // Cleanup: reset display and stop monitor
-                RootShell.resetDisplayArea(1)
-                RootShell.setDisplayDpi(1, null)
+                // 3. ALWAYS Cleanup: Reset rear display to defaults and stop monitor
+                RootShell.resetDisplayArea(displayId)
+                RootShell.setDisplayDpi(displayId, null)
 
                 val monitorIntent = Intent(context, MirrorMonitorService::class.java)
                 context.stopService(monitorIntent)

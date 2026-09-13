@@ -10,10 +10,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:name=".KuroMix"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:allowBackup="false"
         android:icon="@drawable/kuromify_logo"
         android:label="@string/app_name"
@@ -44,7 +46,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- kuromix://switch?pkg=<packageName> for Tasker/MacroDroid/shortcuts -->
+
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -56,7 +58,13 @@
         <service
             android:name=".service.RearDisplayService"
             android:foregroundServiceType="specialUse"
-            android:exported="false" />
+            android:exported="false">
+
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Rear display mirroring and display management" />
+
+        </service>
 
         <service
             android:name=".service.MirrorTileService"
