@@ -362,7 +362,8 @@ fun AppConfigBottomSheet(
                     )
                 },
                 valueRange = 200f..600f,
-                steps = 40
+                steps = 40,
+                hapticEffect = SliderDefaults.SliderHapticEffect.Step
             )
 
             BasicComponent(
@@ -396,6 +397,7 @@ fun AppConfigBottomSheet(
                 },
                 valueRange = 0f..800f,
                 steps = 80,
+                hapticEffect = SliderDefaults.SliderHapticEffect.Step,
                 enabled = lensOptimizationGlobal
             )
 
