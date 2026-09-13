@@ -219,7 +219,7 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
                         pkgs
                             .map { pkg ->
                                 if (pkg == "com.android.systemui") {
-                                    RootShell.killAll(pkg)
+                                    RootShell.crashPackage(pkg)
                                 } else {
                                     RootShell.forceStopPackage(pkg)
                                 }            
