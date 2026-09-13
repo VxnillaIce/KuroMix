@@ -210,3 +210,48 @@ fun OS3GradientBanner(
         }
     }
 }
+
+@Composable
+fun OS3GradientBackground(
+    modifier: Modifier = Modifier
+) {
+    val isDark =
+        MiuixTheme.colorSchemeMode ==
+            top.yukonga.miuix.kmp.theme.ColorSchemeMode.Dark
+
+    val painter = remember(isDark) {
+        OS3GradientPainter(isDark)
+    }
+
+    val infiniteTransition =
+        rememberInfiniteTransition(
+            label = "os3_background_anim"
+        )
+
+    val time by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = 1000000,
+                easing = LinearEasing
+            ),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "background_time"
+    )
+
+    Canvas(
+        modifier = modifier
+    ) {
+        painter.update(
+            time = time,
+            width = size.width,
+            height = size.height
+        )
+
+        drawRect(
+            brush = painter.getBrush()
+        )
+    }
+}

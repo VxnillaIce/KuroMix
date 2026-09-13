@@ -82,6 +82,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx.v284)
 
     implementation(libs.miuix.ui.android)
+    implementation(libs.miuix.blur.android)
     implementation(libs.miuix.preference.android)
     implementation(libs.miuix.icons.android)
     implementation(libs.miuix.navigation3.ui.android)
