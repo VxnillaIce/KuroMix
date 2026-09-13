@@ -2,23 +2,43 @@ package com.kuromify.kuromix.ui
 
 import android.os.Build
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kuromify.kuromix.R
 import com.kuromify.kuromix.root.RootShell
 import com.kuromify.kuromix.ui.component.OS3GradientBanner
-import top.yukonga.miuix.kmp.basic.*
+import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 @Composable
-fun AboutScreen() {
+fun AboutScreen(bottomPadding: Dp = 0.dp) {
     var hyperOSVersion by remember { mutableStateOf("Checking…") }
     var deviceName by remember { mutableStateOf("Checking…") }
 
@@ -27,19 +47,32 @@ fun AboutScreen() {
         deviceName = RootShell.getMarketName()
     }
 
+    val scrollBehavior = MiuixScrollBehavior()
+
     Scaffold(
         topBar = {
-            SmallTopAppBar(title = "About")
+            TopAppBar(
+                title = "About",
+                largeTitle = "About",
+                scrollBehavior = scrollBehavior
+            )
         }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                .overScrollVertical()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            contentPadding = PaddingValues(
+                top = padding.calculateTopPadding() + 8.dp,
+                bottom = bottomPadding + 16.dp
+            )
         ) {
             item {
-                OS3GradientBanner(height = 180.dp) {
+                OS3GradientBanner(
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    height = 180.dp
+                ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Image(
                             painter = painterResource(id = R.drawable.kuromify_logo),
@@ -60,7 +93,9 @@ fun AboutScreen() {
 
             item {
                 SmallTitle(text = "DEVICE INFO")
-                Card {
+                Card(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     BasicComponent(
                         title = "Device Model",
                         summary = deviceName
@@ -79,7 +114,9 @@ fun AboutScreen() {
             item {
                 Spacer(Modifier.height(16.dp))
                 SmallTitle(text = "ABOUT APP")
-                Card {
+                Card(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     BasicComponent(
                         title = "Developer",
                         summary = "Vxnilla Ice"
@@ -90,7 +127,9 @@ fun AboutScreen() {
             item {
                 Spacer(Modifier.height(16.dp))
                 SmallTitle(text = "REFERENCES")
-                Card {
+                Card(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     BasicComponent(
                         title = "UI Toolkit",
                         summary = "MIUIX Library by YukongA"

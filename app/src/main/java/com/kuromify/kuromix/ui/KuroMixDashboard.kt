@@ -47,6 +47,8 @@ enum class ModuleStatus {
     DISABLED
 }
 
+private const val MODULE_API_LEVEL = 102
+
 @Composable
 fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp) {
     val context = LocalContext.current
@@ -366,7 +368,7 @@ private fun ActivationStatusCard(
             }
 
             Text(
-                text = stringResource(R.string.xposed_api_version),
+                text = stringResource(R.string.xposed_api_version, MODULE_API_LEVEL),
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(start = 16.dp, bottom = 12.dp),
