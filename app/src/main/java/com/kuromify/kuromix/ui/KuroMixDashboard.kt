@@ -219,13 +219,14 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
                         pkgs
                             .map { pkg ->
                                 if (pkg == "com.android.systemui") {
-                                    RootShell.crashPackage(pkg)
+                                    Shell.cmd("killAll -9 $pkg").exec().isSuccess
                                 } else {
-                                    RootShell.forceStopPackage(pkg)
-                                }            
+                                    RootShell.forceStopPackage(pkg).ok
+                                }
                             }
-                            .all {it.ok}
+                            .all { it }
                     }
+
                     showRestartDialog = false
 
                     if (restartSucceeded) {
@@ -296,7 +297,7 @@ fun RestartAppsDialog(
 
     val allSelected =
         allPackages.isNotEmpty() &&
-            allPackages.all { selectedPackages.contains(it) }
+                allPackages.all { selectedPackages.contains(it) }
 
     OverlayDialog(
         show = true,
