@@ -20,6 +20,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import top.yukonga.miuix.kmp.basic.*
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -34,11 +35,15 @@ fun SettingsScreen(onBack: () -> Unit) {
     var status by remember { mutableStateOf("") }
 
     val scrollBehavior = MiuixScrollBehavior()
+    val backdrop = rememberKuroMixBackdrop()
+    val blurSupported = rememberKuroMixBlurSupported()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "Settings",
+                modifier = Modifier.kuroMixBlur(backdrop, blurSupported),
+                color = if (blurSupported) Color.Transparent else MiuixTheme.colorScheme.surface,
                 largeTitle = "Settings",
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
@@ -55,6 +60,7 @@ fun SettingsScreen(onBack: () -> Unit) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .kuroMixBackdrop(backdrop)
                 .overScrollVertical()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentPadding = PaddingValues(

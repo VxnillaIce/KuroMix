@@ -11,16 +11,18 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kuromify.kuromix.R
 import com.kuromify.kuromix.root.RootShell
 import com.kuromify.kuromix.ui.component.OS3GradientBanner
 import top.yukonga.miuix.kmp.basic.*
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 @Composable
-fun AboutScreen() {
+fun AboutScreen(bottomPadding: Dp = 0.dp) {
     var hyperOSVersion by remember { mutableStateOf("Checking…") }
     var deviceName by remember { mutableStateOf("Checking…") }
 
@@ -30,11 +32,15 @@ fun AboutScreen() {
     }
 
     val scrollBehavior = MiuixScrollBehavior()
+    val backdrop = rememberKuroMixBackdrop()
+    val blurSupported = rememberKuroMixBlurSupported()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "About",
+                modifier = Modifier.kuroMixBlur(backdrop, blurSupported),
+                color = if (blurSupported) Color.Transparent else MiuixTheme.colorScheme.surface,
                 largeTitle = "About",
                 scrollBehavior = scrollBehavior
             )
@@ -43,11 +49,12 @@ fun AboutScreen() {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .kuroMixBackdrop(backdrop)
                 .overScrollVertical()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentPadding = PaddingValues(
                 top = padding.calculateTopPadding() + 8.dp,
-                bottom = 16.dp
+                bottom = bottomPadding + 16.dp
             )
         ) {
             item {

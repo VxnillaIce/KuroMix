@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kuromify.kuromix.R
@@ -44,7 +45,7 @@ enum class ModuleStatus {
 }
 
 @Composable
-fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
+fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val whitelistManager = remember { WhitelistManager(context) }
@@ -65,7 +66,6 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
     fun checkRoot() {
         scope.launch {
             rootReady = withContext(kotlinx.coroutines.Dispatchers.IO) { 
-                // If current cached shell is not root, close it to force a fresh attempt
                 val cached = Shell.getCachedShell()
                 if ((cached != null) && !cached.isRoot) {
                     android.util.Log.d("KuroMixDashboard", "[KUROMIX_LOG] Closing non-root cached shell")
@@ -81,11 +81,15 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
     }
 
     val scrollBehavior = MiuixScrollBehavior()
+    val backdrop = rememberKuroMixBackdrop()
+    val blurSupported = rememberKuroMixBlurSupported()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "KuroMix",
+                modifier = Modifier.kuroMixBlur(backdrop, blurSupported),
+                color = if (blurSupported) Color.Transparent else MiuixTheme.colorScheme.surface,
                 largeTitle = "KuroMix",
                 scrollBehavior = scrollBehavior,
                 actions = {
@@ -116,11 +120,12 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .kuroMixBackdrop(backdrop)
                 .overScrollVertical()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentPadding = PaddingValues(
                 top = padding.calculateTopPadding() + 8.dp,
-                bottom = 16.dp
+                bottom = bottomPadding + 16.dp
             )
         ) {
             item {

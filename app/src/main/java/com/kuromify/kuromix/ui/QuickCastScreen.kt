@@ -9,10 +9,12 @@ import androidx.compose.material.icons.filled.RemoveDone
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.kuromify.kuromix.data.AppConfig
@@ -32,10 +34,11 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Edit
 import top.yukonga.miuix.kmp.icon.extended.Ok
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 @Composable
-fun QuickCastScreen() {
+fun QuickCastScreen(bottomPadding: Dp = 0.dp) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val whitelistManager = remember { WhitelistManager(context) }
@@ -70,11 +73,15 @@ fun QuickCastScreen() {
     }
 
     val scrollBehavior = MiuixScrollBehavior()
+    val backdrop = rememberKuroMixBackdrop()
+    val blurSupported = rememberKuroMixBlurSupported()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "Quick Cast",
+                modifier = Modifier.kuroMixBlur(backdrop, blurSupported),
+                color = if (blurSupported) Color.Transparent else MiuixTheme.colorScheme.surface,
                 largeTitle = "Quick Cast",
                 scrollBehavior = scrollBehavior,
                 actions = {
@@ -104,11 +111,12 @@ fun QuickCastScreen() {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .kuroMixBackdrop(backdrop)
                 .overScrollVertical()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentPadding = PaddingValues(
                 top = padding.calculateTopPadding() + 8.dp,
-                bottom = 16.dp
+                bottom = bottomPadding + 16.dp
             )
         ) {
             item {
@@ -195,7 +203,6 @@ fun QuickCastScreen() {
                 scope.launch {
                     whitelistManager.updateAppConfig(app.packageName, config)
                     
-                    // REAL-TIME UPDATE: If mirrored, apply immediately
                     val targetDisplay = rearDisplays.primaryRearDisplayId() ?: 1
                     val taskId = withContext(Dispatchers.IO) { RootShell.getTaskIdForPackage(app.packageName) }
                     if (taskId != null) {
@@ -290,7 +297,6 @@ private fun AppItem(
                 val icon = context.packageManager.getApplicationIcon(app.packageName)
                 iconBitmap = icon.toBitmap().asImageBitmap()
             } catch (e: Exception) {
-                // Fallback
             }
         }
     }
