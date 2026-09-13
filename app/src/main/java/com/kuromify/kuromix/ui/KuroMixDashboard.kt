@@ -216,8 +216,12 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
                 scope.launch {
                     val restartSucceeded = withContext(Dispatchers.IO) {
                         pkgs
-                            .map { RootShell.forceStopPackage(it) }
-                            .all { it.ok }
+                            .map { pkg ->
+                                if (pkg == "com.android.systemui") {
+                                    RootShell.killAll(pkg)
+                                } else {
+                                    RootShell.forceStopPackage(pkg)
+                                }            
                     }
 
                     showRestartDialog = false
