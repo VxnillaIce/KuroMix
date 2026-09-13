@@ -51,10 +51,12 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+
             if (file("release.keystore").exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -71,33 +73,33 @@ kotlin {
 }
 
 dependencies {
-    implementation(platform(libs.androidx.compose.bom.v20240900))
-    implementation(libs.androidx.activity.compose.v192)
-    implementation(libs.androidx.ui)
-    implementation(libs.androidx.ui.tooling.preview)
-    implementation(libs.androidx.material3)
-    implementation(libs.androidx.core.ktx.v1170)
-    implementation(libs.androidx.lifecycle.runtime.ktx.v284)
+    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.core:core-ktx:1.19.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
 
-    implementation(libs.miuix.ui.android)
-    implementation(libs.miuix.preference.android)
-    implementation(libs.miuix.icons.android)
-    implementation(libs.miuix.navigation3.ui.android)
+    implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.3")
+    implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.3")
+    implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.3")
+    implementation("top.yukonga.miuix.kmp:miuix-navigation3-ui-android:0.9.3")
 
-    implementation(libs.androidx.compose.material.icons.core)
-    implementation(libs.androidx.compose.material.icons.extended)
+    implementation("androidx.compose.material:material-icons-core")
+    implementation("androidx.compose.material:material-icons-extended")
 
-    implementation(libs.androidx.datastore.preferences)
-    implementation(libs.kotlinx.serialization.json)
-    implementation(libs.androidx.navigation3.runtime)
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation("androidx.navigation3:navigation3-runtime:1.1.7")
 
-    implementation(libs.core)
-    implementation(libs.service)
-    implementation(libs.hyperisland.kit)
+    implementation("com.github.topjohnwu.libsu:core:5.2.2")
+    implementation("com.github.topjohnwu.libsu:service:5.2.2")
+    implementation("io.github.d4viddf:hyperisland_kit:0.4.4")
 
-    compileOnly(libs.xposed.api)
+    compileOnly("de.robv.android.xposed:api:82")
 
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
 }
