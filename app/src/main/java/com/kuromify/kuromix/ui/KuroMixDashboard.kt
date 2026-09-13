@@ -223,8 +223,8 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
                                 } else {
                                     RootShell.forceStopPackage(pkg)
                                 }            
+                        }
                     }
-
                     showRestartDialog = false
 
                     if (restartSucceeded) {
