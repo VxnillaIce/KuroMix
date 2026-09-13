@@ -10,8 +10,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -89,11 +87,11 @@ class MainActivity : ComponentActivity() {
                     targetState = isSettingsOpen,
                     transitionSpec = {
                         if (targetState) {
-                            (slideInHorizontally { it } + fadeIn()) togetherWith
-                                (slideOutHorizontally { -it / 3 } + fadeOut())
+                            slideInHorizontally { it } togetherWith
+                                slideOutHorizontally { -it / 3 }
                         } else {
-                            (slideInHorizontally { -it / 3 } + fadeIn()) togetherWith
-                                (slideOutHorizontally { it } + fadeOut())
+                            slideInHorizontally { -it / 3 } togetherWith
+                                slideOutHorizontally { it }
                         }
                     },
                     label = "settingsTransition"
