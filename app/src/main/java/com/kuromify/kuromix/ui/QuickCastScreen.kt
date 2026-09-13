@@ -12,6 +12,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.kuromify.kuromix.data.AppConfig
@@ -29,30 +31,31 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Edit
 import top.yukonga.miuix.kmp.icon.extended.Ok
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 @Composable
-fun QuickCastScreen() {
+fun QuickCastScreen(bottomPadding: Dp = 0.dp) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val whitelistManager = remember { WhitelistManager(context) }
     val rearDisplays = remember { RearDisplayManager(context) }
-    
-    var isEditMode by remember { mutableStateOf(value = false) }
+
+    var isEditMode by remember { mutableStateOf(false) }
     var apps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(value = true) }
+    var isLoading by remember { mutableStateOf(true) }
 
     val filteredApps = remember(apps, searchQuery) {
         if (searchQuery.isEmpty()) apps
-        else apps.filter { 
-            it.label.contains(searchQuery, ignoreCase = true) || 
-            it.packageName.contains(searchQuery, ignoreCase = true) 
+        else apps.filter {
+            it.label.contains(searchQuery, ignoreCase = true) ||
+                    it.packageName.contains(searchQuery, ignoreCase = true)
         }
     }
 
     val perAppConfig by whitelistManager.perAppConfigFlow.collectAsState(initial = emptyMap())
     val lensOptimizationGlobal by whitelistManager.lensOptimizationFlow.collectAsState(initial = false)
-    
+
     var selectedAppForConfig by remember { mutableStateOf<AppInfo?>(null) }
     var status by remember { mutableStateOf("") }
 
@@ -65,25 +68,26 @@ fun QuickCastScreen() {
         isLoading = false
     }
 
+    val scrollBehavior = MiuixScrollBehavior()
     Scaffold(
         topBar = {
-            SmallTopAppBar(
+            TopAppBar(
                 title = "Quick Cast",
+                largeTitle = "Quick Cast",
+                scrollBehavior = scrollBehavior,
                 actions = {
                     if (isEditMode) {
                         val allEnabled = apps.all { perAppConfig[it.packageName]?.enabled ?: true }
-                        IconButton(
-                        onClick = {
+                        IconButton(onClick = {
                             scope.launch {
                                 whitelistManager.updateBatchAppConfig(apps.map { it.packageName }, !allEnabled)
                             }
+                        }) {
+                            Icon(
+                                imageVector = if (allEnabled) Icons.Default.RemoveDone else Icons.Default.DoneAll,
+                                contentDescription = if (allEnabled) "Deselect All" else "Select All"
+                            )
                         }
-                    ) {
-                        Icon(
-                            imageVector = if (allEnabled) Icons.Default.RemoveDone else Icons.Default.DoneAll,
-                            contentDescription = if (allEnabled) "Deselect All" else "Select All"
-                        )
-                    }
                     }
                     IconButton(onClick = { isEditMode = !isEditMode }) {
                         Icon(
@@ -98,21 +102,30 @@ fun QuickCastScreen() {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                .overScrollVertical()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            contentPadding = PaddingValues(
+                top = padding.calculateTopPadding() + 8.dp,
+                bottom = bottomPadding + 16.dp
+            )
         ) {
             item {
                 TextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     label = "Search applications...",
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 12.dp)
                 )
             }
 
             item {
                 SmallTitle(text = "MIRRORABLE APPLICATIONS")
-                Card {
+                Card(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     if (isLoading) {
                         Box(
                             modifier = Modifier
@@ -128,7 +141,7 @@ fun QuickCastScreen() {
                             summary = if (searchQuery.isEmpty()) "Scanning for launchable apps…" else "Try a different search term"
                         )
                     } else {
-                        filteredApps.filter { app -> 
+                        filteredApps.filter { app ->
                             if (isEditMode) true else perAppConfig[app.packageName]?.enabled ?: true
                         }.forEach { app ->
                             val config = perAppConfig[app.packageName] ?: AppConfig()
@@ -145,16 +158,21 @@ fun QuickCastScreen() {
                                     if (!isEditMode) {
                                         selectedAppForConfig = app
                                     }
-                                },
+                                }
                             )
                         }
                     }
                 }
             }
-            
+
             if (status.isNotEmpty()) {
                 item {
-                    Card(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .padding(top = 16.dp)
+                    ) {
                         Text(status, modifier = Modifier.padding(12.dp))
                     }
                 }
@@ -165,7 +183,7 @@ fun QuickCastScreen() {
     if (selectedAppForConfig != null) {
         val app = selectedAppForConfig!!
         val initialConfig = remember(app.packageName) { perAppConfig[app.packageName] ?: AppConfig() }
-        
+
         AppConfigDialog(
             app = app,
             initialConfig = initialConfig,
@@ -174,8 +192,7 @@ fun QuickCastScreen() {
             onSave = { config ->
                 scope.launch {
                     whitelistManager.updateAppConfig(app.packageName, config)
-                    
-                    // REAL-TIME UPDATE: If mirrored, apply immediately
+
                     val targetDisplay = rearDisplays.primaryRearDisplayId() ?: 1
                     val taskId = withContext(Dispatchers.IO) { RootShell.getTaskIdForPackage(app.packageName) }
                     if (taskId != null) {
@@ -221,9 +238,9 @@ fun AppConfigDialog(
                     summary = "Revert to 320 DPI",
                     onClick = { config = config.copy(dpi = 320) }
                 )
-                
+
                 Spacer(Modifier.height(16.dp))
-                
+
                 SliderPreference(
                     title = "Lens Offset",
                     summary = "${config.lensOffset} px",
@@ -240,9 +257,9 @@ fun AppConfigDialog(
                     onClick = { config = config.copy(lensOffset = 450) }
                 )
             }
-            
+
             Spacer(Modifier.height(24.dp))
-            
+
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 Button(onClick = { onSave(config) }) {
                     Text("Save")
@@ -269,8 +286,7 @@ private fun AppItem(
             try {
                 val icon = context.packageManager.getApplicationIcon(app.packageName)
                 iconBitmap = icon.toBitmap().asImageBitmap()
-            } catch (_: Exception) {
-                // Fallback
+            } catch (e: Exception) {
             }
         }
     }

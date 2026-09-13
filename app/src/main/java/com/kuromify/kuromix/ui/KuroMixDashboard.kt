@@ -1,5 +1,6 @@
 package com.kuromify.kuromix.ui
 
+import android.content.Intent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -14,19 +15,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kuromify.kuromix.R
 import com.kuromify.kuromix.data.WhitelistManager
+import com.kuromify.kuromix.manager.RearDisplayManager
 import com.kuromify.kuromix.root.RootShell
-import com.kuromify.kuromix.ui.component.OS3GradientBanner
 import com.kuromify.kuromix.service.RearDisplayService
+import com.kuromify.kuromix.ui.component.OS3GradientBanner
 import com.topjohnwu.superuser.Shell
-import android.content.Intent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -36,6 +39,7 @@ import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 enum class ModuleStatus {
     ACTIVE,
@@ -44,33 +48,31 @@ enum class ModuleStatus {
 }
 
 @Composable
-fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
+fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val whitelistManager = remember { WhitelistManager(context) }
-
+    val rearDisplays = remember { RearDisplayManager(context) }
+    var rearDisplayId by remember { mutableStateOf(rearDisplays.primaryRearDisplayId()) }
     var rootReady by remember { mutableStateOf<Boolean?>(null) }
     var status by remember { mutableStateOf("") }
-    
     val mirrorModuleEnabled by whitelistManager.mirrorModuleEnabledFlow.collectAsState(initial = true)
     val replaceMipayEnabled by whitelistManager.replaceMipayEnabledFlow.collectAsState(initial = false)
-
     var isModuleActive by remember { mutableStateOf(RootShell.isModuleActive()) }
     var showRestartDialog by remember { mutableStateOf(false) }
 
     fun refreshState() {
         scope.launch {
             rootReady = null
-            rootReady = withContext(Dispatchers.IO) { 
-                // If current cached shell is not root, close it to force a fresh attempt
+            rootReady = withContext(Dispatchers.IO) {
                 val cached = Shell.getCachedShell()
                 if ((cached != null) && !cached.isRoot) {
-                    android.util.Log.d("KuroMixDashboard", "[KUROMIX_LOG] Closing non-root cached shell")
                     cached.close()
                 }
-                RootShell.isRootAvailable() 
+                RootShell.isRootAvailable()
             }
             isModuleActive = RootShell.isModuleActive()
+            rearDisplayId = rearDisplays.primaryRearDisplayId()
         }
     }
 
@@ -78,42 +80,55 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
         refreshState()
     }
 
+    val scrollBehavior = MiuixScrollBehavior()
+
     Scaffold(
         topBar = {
-            @Suppress("DEPRECATION")
-            SmallTopAppBar(
+            TopAppBar(
                 title = "KuroMix",
+                largeTitle = "KuroMix",
+                scrollBehavior = scrollBehavior,
                 actions = {
-                    IconButton(
-                        onClick = { showRestartDialog = true },
-                    ) {
-                        Icon(imageVector = Icons.Default.Refresh, contentDescription = "Restart Scoped Apps")
+                    IconButton(onClick = { showRestartDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Restart Scoped Apps"
+                        )
                     }
-                    IconButton(
-                        onClick = onNavigateToSettings,
-                    ) {
-                        Icon(imageVector = MiuixIcons.Settings, contentDescription = "Settings")
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(
+                            imageVector = MiuixIcons.Settings,
+                            contentDescription = "Settings"
+                        )
                     }
-                },
+                }
             )
-        },
+        }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                .overScrollVertical()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            contentPadding = PaddingValues(
+                top = padding.calculateTopPadding() + 8.dp,
+                bottom = bottomPadding + 16.dp
+            )
         ) {
             item {
                 ActivationStatusCard(
                     status = if (isModuleActive) ModuleStatus.ACTIVE else ModuleStatus.DISABLED,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
                 )
                 Spacer(Modifier.height(16.dp))
             }
 
             item {
-                OS3GradientBanner {
+                OS3GradientBanner(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     Text(
                         text = "Kuromify The World",
                         color = Color.White,
@@ -127,7 +142,9 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
 
             item {
                 SmallTitle(text = "DEVICE STATUS")
-                Card {
+                Card(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     BasicComponent(
                         title = "Root Access",
                         summary = when (rootReady) {
@@ -135,9 +152,11 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
                             true -> "Granted"
                             false -> "Denied - Tap to retry"
                         },
-                        onClick = {
-                            refreshState()
-                        }
+                        onClick = { refreshState() }
+                    )
+                    BasicComponent(
+                        title = "Rear Display",
+                        summary = if (rearDisplayId != null) "Detected (ID: $rearDisplayId)" else "Not Detected"
                     )
                 }
             }
@@ -145,17 +164,18 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
             item {
                 Spacer(Modifier.height(16.dp))
                 SmallTitle(text = "MODULES")
-                Card {
+                Card(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     SwitchPreference(
                         title = "Rear Screen Mirroring",
                         summary = "Enable/Disable global mirroring features",
                         checked = mirrorModuleEnabled,
-                        onCheckedChange = { 
-                            scope.launch { 
+                        onCheckedChange = {
+                            scope.launch {
                                 whitelistManager.setMirrorModuleEnabled(it)
                                 RootShell.setKeepAwakeProp(it)
                                 RootShell.setAntiKillProp(it)
-                                
                                 val intent = Intent(context, RearDisplayService::class.java)
                                 if (it) {
                                     context.startForegroundService(intent)
@@ -181,12 +201,17 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
 
             if (status.isNotEmpty()) {
                 item {
-                    Card(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .padding(top = 16.dp)
+                    ) {
                         Text(status, modifier = Modifier.padding(12.dp))
                     }
                 }
             }
-            
+
             item {
                 Spacer(Modifier.height(32.dp))
             }
@@ -243,7 +268,9 @@ fun RestartAppsDialog(onDismiss: () -> Unit, onRestart: (List<String>) -> Unit) 
                                 state = if (isSelected) ToggleableState.On else ToggleableState.Off,
                                 onClick = {
                                     if (!isSelected) {
-                                        pkgs.forEach { if (!selectedPackages.contains(it)) selectedPackages.add(it) }
+                                        pkgs.forEach {
+                                            if (!selectedPackages.contains(it)) selectedPackages.add(it)
+                                        }
                                     } else {
                                         pkgs.forEach { selectedPackages.remove(it) }
                                     }
@@ -252,7 +279,9 @@ fun RestartAppsDialog(onDismiss: () -> Unit, onRestart: (List<String>) -> Unit) 
                         },
                         onClick = {
                             if (!isSelected) {
-                                pkgs.forEach { if (!selectedPackages.contains(it)) selectedPackages.add(it) }
+                                pkgs.forEach {
+                                    if (!selectedPackages.contains(it)) selectedPackages.add(it)
+                                }
                             } else {
                                 pkgs.forEach { selectedPackages.remove(it) }
                             }
@@ -261,7 +290,10 @@ fun RestartAppsDialog(onDismiss: () -> Unit, onRestart: (List<String>) -> Unit) 
                 }
             }
             Spacer(Modifier.height(24.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
                 Button(onClick = { onRestart(selectedPackages.toList()) }) {
                     Text("Restart")
                 }
@@ -274,15 +306,13 @@ fun RestartAppsDialog(onDismiss: () -> Unit, onRestart: (List<String>) -> Unit) 
 @Composable
 private fun ActivationStatusCard(
     status: ModuleStatus,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier
 ) {
     val darkTheme = isSystemInDarkTheme()
     val context = LocalContext.current
     val versionText = remember(context) {
         runCatching {
-            val packageInfo = context.packageManager
-                .getPackageInfo(context.packageName, 0)
-
+            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
             "${packageInfo.versionName.orEmpty()} (${packageInfo.longVersionCode})"
         }.getOrDefault("")
     }
@@ -307,12 +337,12 @@ private fun ActivationStatusCard(
 
     Card(
         modifier = modifier,
-        colors = CardDefaults.defaultColors(color = cardColor),
+        colors = CardDefaults.defaultColors(color = cardColor)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(110.dp),
+                .height(110.dp)
         ) {
             Text(
                 text = title,
@@ -321,7 +351,7 @@ private fun ActivationStatusCard(
                     .padding(start = 16.dp, top = 14.dp),
                 fontSize = 22.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = MiuixTheme.colorScheme.onSurface,
+                color = MiuixTheme.colorScheme.onSurface
             )
 
             if (versionText.isNotEmpty()) {
@@ -331,7 +361,7 @@ private fun ActivationStatusCard(
                         .align(Alignment.TopStart)
                         .padding(start = 16.dp, top = 43.dp),
                     fontSize = 15.sp,
-                    color = MiuixTheme.colorScheme.onSurface,
+                    color = MiuixTheme.colorScheme.onSurface
                 )
             }
 
@@ -341,7 +371,7 @@ private fun ActivationStatusCard(
                     .align(Alignment.BottomStart)
                     .padding(start = 16.dp, bottom = 12.dp),
                 fontSize = 15.sp,
-                color = MiuixTheme.colorScheme.onSurface,
+                color = MiuixTheme.colorScheme.onSurface
             )
 
             StatusSymbol(
@@ -350,7 +380,7 @@ private fun ActivationStatusCard(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .offset(x = 27.dp, y = 31.dp)
-                    .size(110.dp),
+                    .size(110.dp)
             )
         }
     }
@@ -360,7 +390,7 @@ private fun ActivationStatusCard(
 private fun StatusSymbol(
     status: ModuleStatus,
     color: Color,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
         val w = size.width
@@ -373,23 +403,21 @@ private fun StatusSymbol(
                     color = color,
                     radius = size.minDimension * 0.34f,
                     center = Offset(w * 0.5f, h * 0.5f),
-                    style = Stroke(width = stroke),
+                    style = Stroke(width = stroke)
                 )
-
                 drawLine(
                     color = color,
                     start = Offset(w * 0.31f, h * 0.51f),
                     end = Offset(w * 0.44f, h * 0.63f),
                     strokeWidth = stroke,
-                    cap = StrokeCap.Round,
+                    cap = StrokeCap.Round
                 )
-
                 drawLine(
                     color = color,
                     start = Offset(w * 0.44f, h * 0.63f),
                     end = Offset(w * 0.70f, h * 0.36f),
                     strokeWidth = stroke,
-                    cap = StrokeCap.Round,
+                    cap = StrokeCap.Round
                 )
             }
 
@@ -400,28 +428,25 @@ private fun StatusSymbol(
                     lineTo(w * 0.16f, h * 0.78f)
                     close()
                 }
-
                 drawPath(
                     path = path,
                     color = color,
                     style = Stroke(
                         width = stroke,
-                        join = androidx.compose.ui.graphics.StrokeJoin.Round,
-                    ),
+                        join = androidx.compose.ui.graphics.StrokeJoin.Round
+                    )
                 )
-
                 drawLine(
                     color = color,
                     start = Offset(w * 0.50f, h * 0.37f),
                     end = Offset(w * 0.50f, h * 0.56f),
                     strokeWidth = stroke,
-                    cap = StrokeCap.Round,
+                    cap = StrokeCap.Round
                 )
-
                 drawCircle(
                     color = color,
                     radius = stroke * 0.55f,
-                    center = Offset(w * 0.50f, h * 0.68f),
+                    center = Offset(w * 0.50f, h * 0.68f)
                 )
             }
 
@@ -430,15 +455,14 @@ private fun StatusSymbol(
                     color = color,
                     radius = size.minDimension * 0.34f,
                     center = Offset(w * 0.5f, h * 0.5f),
-                    style = Stroke(width = stroke),
+                    style = Stroke(width = stroke)
                 )
-
                 drawLine(
                     color = color,
                     start = Offset(w * 0.28f, h * 0.72f),
                     end = Offset(w * 0.72f, h * 0.28f),
                     strokeWidth = stroke,
-                    cap = StrokeCap.Round,
+                    cap = StrokeCap.Round
                 )
             }
         }
