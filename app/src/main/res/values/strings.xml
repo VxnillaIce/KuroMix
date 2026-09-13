@@ -3,7 +3,7 @@
     <string name="status_activated">Activated</string>
     <string name="status_restart_scope">Activated, restart scope required</string>
     <string name="status_not_activated">Not Activated</string>
-    <string name="xposed_api_version">API %d</string>
+    <string name="xposed_api_version">API 102</string>
 
     <string-array name="xposed_scope">
         <item>com.kuromify.kuromix</item>
