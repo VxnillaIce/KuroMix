@@ -1,7 +1,6 @@
 package com.kuromify.kuromix.root
 
 import com.topjohnwu.superuser.Shell
-import java.io.DataOutputStream
 
 /**
  * Thin wrapper around libsu for the handful of privileged operations KuroMix
@@ -37,40 +36,6 @@ object RootShell {
     /** Force-stops a package using root. */
     fun forceStopPackage(packageName: String): Result {
         return run("am force-stop $packageName")
-    }
-
-    fun restartSystemUi(): Result {
-        return runCatching {
-            val process = ProcessBuilder("su")
-                .redirectErrorStream(true)
-                .start()
-
-            DataOutputStream(process.outputStream).use { output ->
-                output.writeBytes("PIDS=\$(pidof com.android.systemui)\n")
-                output.writeBytes("if [ -z \"\$PIDS\" ]; then exit 1; fi\n")
-                output.writeBytes("kill -9 \$PIDS\n")
-                output.writeBytes("exit\n")
-                output.flush()
-            }
-
-            val output = process.inputStream
-                .bufferedReader()
-                .use { it.readText() }
-
-            val exitCode = process.waitFor()
-
-            Result(
-                ok = exitCode == 0,
-                out = output.lines().filter { it.isNotBlank() },
-                err = emptyList()
-            )
-        }.getOrElse {
-            Result(
-                ok = false,
-                out = emptyList(),
-                err = listOf(it.message ?: it.javaClass.simpleName)
-            )
-        }
     }
 
     /** Moves a specific task to a display. */
@@ -423,4 +388,47 @@ object RootShell {
         val ms = seconds * 1000
         return run("settings put system subscreen_display_time $ms")
     }
-}
+
+    /** Kills a process by package name via root, restarting it (for persistent system processes). */
+    fun killProcess(pkg: String): Result {
+        // First try pidof — fast path
+        val pidResult = run("pidof $pkg")
+        val pid = pidResult.out.firstOrNull()?.trim()?.split(" ")?.firstOrNull()
+
+        if (pid.isNullOrBlank()) {
+            android.util.Log.d(
+                "RootShell",
+                "[KUROMIX_LOG] killProcess: pidof found no PID for $pkg, falling back to ps"
+            )
+            // Fallback: parse ps -A directly, since pidof can miss on some toybox builds
+            val psResult = run("ps -A -o PID,NAME")
+            val line = psResult.out.firstOrNull { it.trim().endsWith(pkg) }
+            val fallbackPid = line?.trim()?.split(Regex("\\s+"))?.firstOrNull()
+
+            if (fallbackPid.isNullOrBlank()) {
+                android.util.Log.d(
+                    "RootShell",
+                    "[KUROMIX_LOG] killProcess: no PID found for $pkg via ps either. ps out=${psResult.out}"
+                )
+                return Result(
+                    ok = false,
+                    out = emptyList(),
+                    err = listOf("No running process found for $pkg")
+                )
+            }
+            val killRes = run("kill -9 $fallbackPid")
+            android.util.Log.d(
+                "RootShell",
+                "[KUROMIX_LOG] killProcess($pkg) via ps pid=$fallbackPid -> ok=${killRes.ok} err=${killRes.err}"
+            )
+            return killRes
+        }
+
+        val killRes = run("kill -9 $pid")
+        android.util.Log.d(
+            "RootShell",
+            "[KUROMIX_LOG] killProcess($pkg) via pidof pid=$pid -> ok=${killRes.ok} err=${killRes.err}"
+        )
+        return killRes
+        }
+    }
