@@ -12,6 +12,10 @@ import androidx.core.graphics.drawable.toBitmap
 import com.kuromify.kuromix.R
 import com.kuromify.kuromix.receiver.KuroMixReceiver
 
+/**
+ * SuperIsland Manager for KuroMix.
+ */
+
 object SuperIslandManager {
     private const val TAG = "SuperIslandManager"
     private const val CHANNEL_ID = "kuromix_mirror_channel"

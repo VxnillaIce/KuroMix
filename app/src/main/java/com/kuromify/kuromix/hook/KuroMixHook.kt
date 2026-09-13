@@ -10,19 +10,6 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
 /**
  * LSPosed entry point for KuroMix.
  *
- * DIAGNOSTIC BUILD: hookNotificationFilterHelper() now dumps every real
- * method on miui.util.NotificationFilterHelper to logcat before attempting
- * any hooks, since the guessed method names (isImportantNotification,
- * isAllowedShowFocus, isSupportFocus, isSystemApp,
- * isAllowedShowResidentNotification, isSupportResidentNotification) were
- * all confirmed wrong via NoSuchMethodError on this build.
- * NotificationSettingsHelper hooks removed — that class doesn't exist
- * here (ClassNotFoundException).
- *
- * After install + reboot, run:
- *   adb logcat -d | findstr KUROMIX_HOOK
- * and look for the block between "==== Methods of" and "==== End methods
- * of" — that's the real API to hook against.
  */
 class KuroMixHook : IXposedHookLoadPackage {
 
