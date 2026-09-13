@@ -4,15 +4,20 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.RemoveDone
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
@@ -26,11 +31,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
-import top.yukonga.miuix.kmp.preference.SliderPreference
-import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Edit
 import top.yukonga.miuix.kmp.icon.extended.Ok
+import top.yukonga.miuix.kmp.preference.SliderPreference
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 @Composable
@@ -49,7 +53,7 @@ fun QuickCastScreen(bottomPadding: Dp = 0.dp) {
         if (searchQuery.isEmpty()) apps
         else apps.filter {
             it.label.contains(searchQuery, ignoreCase = true) ||
-                    it.packageName.contains(searchQuery, ignoreCase = true)
+                it.packageName.contains(searchQuery, ignoreCase = true)
         }
     }
 
@@ -80,7 +84,10 @@ fun QuickCastScreen(bottomPadding: Dp = 0.dp) {
                         val allEnabled = apps.all { perAppConfig[it.packageName]?.enabled ?: true }
                         IconButton(onClick = {
                             scope.launch {
-                                whitelistManager.updateBatchAppConfig(apps.map { it.packageName }, !allEnabled)
+                                whitelistManager.updateBatchAppConfig(
+                                    apps.map { it.packageName },
+                                    !allEnabled
+                                )
                             }
                         }) {
                             Icon(
@@ -141,26 +148,31 @@ fun QuickCastScreen(bottomPadding: Dp = 0.dp) {
                             summary = if (searchQuery.isEmpty()) "Scanning for launchable apps…" else "Try a different search term"
                         )
                     } else {
-                        filteredApps.filter { app ->
-                            if (isEditMode) true else perAppConfig[app.packageName]?.enabled ?: true
-                        }.forEach { app ->
-                            val config = perAppConfig[app.packageName] ?: AppConfig()
-                            AppItem(
-                                app = app,
-                                isEditMode = isEditMode,
-                                isEnabled = config.enabled,
-                                onToggle = { enabled ->
-                                    scope.launch {
-                                        whitelistManager.updateAppConfig(app.packageName, config.copy(enabled = enabled))
+                        filteredApps
+                            .filter { app ->
+                                if (isEditMode) true else perAppConfig[app.packageName]?.enabled ?: true
+                            }
+                            .forEach { app ->
+                                val config = perAppConfig[app.packageName] ?: AppConfig()
+                                AppItem(
+                                    app = app,
+                                    isEditMode = isEditMode,
+                                    isEnabled = config.enabled,
+                                    onToggle = { enabled ->
+                                        scope.launch {
+                                            whitelistManager.updateAppConfig(
+                                                app.packageName,
+                                                config.copy(enabled = enabled)
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        if (!isEditMode) {
+                                            selectedAppForConfig = app
+                                        }
                                     }
-                                },
-                                onClick = {
-                                    if (!isEditMode) {
-                                        selectedAppForConfig = app
-                                    }
-                                }
-                            )
-                        }
+                                )
+                            }
                     }
                 }
             }
@@ -182,9 +194,9 @@ fun QuickCastScreen(bottomPadding: Dp = 0.dp) {
 
     if (selectedAppForConfig != null) {
         val app = selectedAppForConfig!!
-        val initialConfig = remember(app.packageName) { perAppConfig[app.packageName] ?: AppConfig() }
+        val initialConfig = perAppConfig[app.packageName] ?: AppConfig()
 
-        AppConfigDialog(
+        AppConfigBottomSheet(
             app = app,
             initialConfig = initialConfig,
             lensOptimizationGlobal = lensOptimizationGlobal,
@@ -194,21 +206,25 @@ fun QuickCastScreen(bottomPadding: Dp = 0.dp) {
                     whitelistManager.updateAppConfig(app.packageName, config)
 
                     val targetDisplay = rearDisplays.primaryRearDisplayId() ?: 1
-                    val taskId = withContext(Dispatchers.IO) { RootShell.getTaskIdForPackage(app.packageName) }
+                    val taskId = withContext(Dispatchers.IO) {
+                        RootShell.getTaskIdForPackage(app.packageName)
+                    }
                     if (taskId != null) {
                         val offset = if (lensOptimizationGlobal) config.lensOffset else 0
                         RootShell.applyDisplayOffset(targetDisplay, offset)
                         RootShell.setDisplayDpi(targetDisplay, config.dpi)
                         status = "Settings applied in real-time"
                     }
+                    selectedAppForConfig = null
                 }
             }
         )
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppConfigDialog(
+fun AppConfigBottomSheet(
     app: AppInfo,
     initialConfig: AppConfig,
     lensOptimizationGlobal: Boolean,
@@ -216,15 +232,56 @@ fun AppConfigDialog(
     onSave: (AppConfig) -> Unit
 ) {
     var config by remember(app.packageName) { mutableStateOf(initialConfig) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    OverlayDialog(
-        show = true,
-        title = "Config: ${app.label}",
-        onDismissRequest = onDismiss
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState
     ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            SmallTitle(text = "DISPLAY SETTINGS")
-            Card {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(bottom = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close"
+                    )
+                }
+
+                Text(
+                    text = "Config: ${app.label}",
+                    modifier = Modifier.weight(1f)
+                )
+
+                IconButton(onClick = { onSave(config) }) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Save"
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            SmallTitle(
+                text = "DISPLAY SETTINGS",
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+            ) {
                 SliderPreference(
                     title = "DPI",
                     summary = "${config.dpi} DPI",
@@ -258,13 +315,6 @@ fun AppConfigDialog(
                 )
             }
 
-            Spacer(Modifier.height(24.dp))
-
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                Button(onClick = { onSave(config) }) {
-                    Text("Save")
-                }
-            }
             Spacer(Modifier.height(16.dp))
         }
     }
@@ -286,7 +336,7 @@ private fun AppItem(
             try {
                 val icon = context.packageManager.getApplicationIcon(app.packageName)
                 iconBitmap = icon.toBitmap().asImageBitmap()
-            } catch (e: Exception) {
+            } catch (_: Exception) {
             }
         }
     }
@@ -300,14 +350,21 @@ private fun AppItem(
                 Image(
                     bitmap = iconBitmap!!,
                     contentDescription = app.label,
-                    modifier = Modifier.size(40.dp).padding(end = 12.dp)
+                    modifier = Modifier
+                        .size(40.dp)
+                        .padding(end = 12.dp)
                 )
             } else {
                 Box(
-                    modifier = Modifier.size(40.dp).padding(end = 12.dp),
+                    modifier = Modifier
+                        .size(40.dp)
+                        .padding(end = 12.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
                 }
             }
         },
