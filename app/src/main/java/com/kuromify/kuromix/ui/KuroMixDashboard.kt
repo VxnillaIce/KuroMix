@@ -95,7 +95,7 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
                 actions = {
                     IconButton(onClick = { showRestartDialog = true }) {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
+                            imageVector = MiuixIcons.Refresh,
                             contentDescription = "Restart Scoped Apps"
                         )
                     }
