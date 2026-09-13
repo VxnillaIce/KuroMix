@@ -7,10 +7,6 @@ import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 
-/**
- * LSPosed entry point for KuroMix.
- *
- */
 class KuroMixHook : IXposedHookLoadPackage {
 
     companion object {
