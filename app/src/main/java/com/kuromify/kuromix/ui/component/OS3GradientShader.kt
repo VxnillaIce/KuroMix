@@ -13,9 +13,6 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.blur.textureBlur
-import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.blur.layerBackdrop
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -144,8 +141,6 @@ class OS3GradientPainter(private val isDark: Boolean) {
     fun update(time: Float, width: Float, height: Float) {
         shader.setFloatUniform("uResolution", width, height)
         shader.setFloatUniform("uAnimTime", time)
-
-        // SLOW DOWN POINT ANIMATION: Cycle ~30-40 seconds
         val pointOffset = if (isDark) 0.4f else 0.2f
         val pointsAnim = FloatArray(8)
         for (i in 0 until 4) {
@@ -155,8 +150,6 @@ class OS3GradientPainter(private val isDark: Boolean) {
             pointsAnim[i * 2 + 1] = srcY + cos(time * 0.15f + srcX) * pointOffset
         }
         shader.setFloatUniform("uPointsAnim", pointsAnim)
-
-        // SLOW DOWN COLOR CYCLING: 15-20s per set
         val colorSets = if (isDark) colorsDark else colorsLight
         val period = if (isDark) 20.0f else 15.0f
         val totalProgress = (time / period) % 3.0f
@@ -190,13 +183,11 @@ fun OS3GradientBanner(
         initialValue = 0f,
         targetValue = 1000f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1000000, easing = LinearEasing), // 1000 seconds for 1000 units = 1s per unit
+            animation = tween(1000000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "time"
     )
-
-    val backdrop = rememberLayerBackdrop()
 
     Box(
         modifier = modifier
@@ -205,23 +196,14 @@ fun OS3GradientBanner(
             .clip(RoundedCornerShape(24.dp))
     ) {
         Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .layerBackdrop(backdrop)
+            modifier = Modifier.fillMaxSize()
         ) {
             painter.update(time, size.width, size.height)
             drawRect(painter.getBrush())
         }
 
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .textureBlur(
-                    backdrop = backdrop,
-                    shape = RoundedCornerShape(24.dp),
-                    blurRadius = 20f, // Enhanced blur for deeper glass look
-                    noiseCoefficient = 0.04f // Subtle noise for premium texture
-                ),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
             content()
