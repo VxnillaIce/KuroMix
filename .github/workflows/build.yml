@@ -54,7 +54,7 @@ jobs:
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             VERSION_NAME="${GITHUB_REF_NAME}"
           else
-            VERSION_NAME="0.1-${GITHUB_SHA::7}"
+            VERSION_NAME="1.0.0-ULTRA-${GITHUB_SHA::7}"
           fi
 
           VERSION_CODE="${{ github.run_number }}"

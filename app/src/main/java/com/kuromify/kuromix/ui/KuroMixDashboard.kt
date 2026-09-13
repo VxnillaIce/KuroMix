@@ -366,7 +366,7 @@ private fun ActivationStatusCard(
             }
 
             Text(
-                text = stringResource(R.string.xposed_api_version, RootShell.getXposedApiLevel()),
+                text = stringResource(R.string.xposed_api_version),
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(start = 16.dp, bottom = 12.dp),

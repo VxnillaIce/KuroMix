@@ -33,9 +33,6 @@ object RootShell {
     /** Returns true if the Xposed module is successfully hooked. Hooked by KuroMixHook. */
     fun isModuleActive(): Boolean = false
 
-    /** Returns the Xposed API level. Hooked by KuroMixHook. */
-    fun getXposedApiLevel(): Int = 0
-
     /** Force-stops a package using root. */
     fun forceStopPackage(packageName: String): Result {
         return run("am force-stop $packageName")

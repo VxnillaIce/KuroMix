@@ -84,18 +84,6 @@ class KuroMixHook : IXposedHookLoadPackage {
                 }
             )
         }
-        tryHook("RootShell.getXposedApiLevel") {
-            XposedHelpers.findAndHookMethod(
-                "com.kuromify.kuromix.root.RootShell",
-                lpparam.classLoader,
-                "getXposedApiLevel",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        param.result = XposedBridge.getXposedVersion()
-                    }
-                }
-            )
-        }
     }
 
     private fun getSysProp(lpparam: XC_LoadPackage.LoadPackageParam, key: String): Boolean {
