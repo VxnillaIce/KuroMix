@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.kuromify.kuromix.data.AppConfig
@@ -31,6 +32,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Edit
 import top.yukonga.miuix.kmp.icon.extended.Ok
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 @Composable
 fun QuickCastScreen() {
@@ -67,10 +69,14 @@ fun QuickCastScreen() {
         isLoading = false
     }
 
+    val scrollBehavior = MiuixScrollBehavior()
+
     Scaffold(
         topBar = {
-            SmallTopAppBar(
+            TopAppBar(
                 title = "Quick Cast",
+                largeTitle = "Quick Cast",
+                scrollBehavior = scrollBehavior,
                 actions = {
                     if (isEditMode) {
                         val allEnabled = apps.all { perAppConfig[it.packageName]?.enabled ?: true }
@@ -98,21 +104,30 @@ fun QuickCastScreen() {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                .overScrollVertical()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            contentPadding = PaddingValues(
+                top = padding.calculateTopPadding() + 8.dp,
+                bottom = 16.dp
+            )
         ) {
             item {
                 TextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     label = "Search applications...",
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 12.dp)
                 )
             }
 
             item {
                 SmallTitle(text = "MIRRORABLE APPLICATIONS")
-                Card {
+                Card(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     if (isLoading) {
                         Box(
                             modifier = Modifier
@@ -154,7 +169,12 @@ fun QuickCastScreen() {
             
             if (status.isNotEmpty()) {
                 item {
-                    Card(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .padding(top = 16.dp)
+                    ) {
                         Text(status, modifier = Modifier.padding(12.dp))
                     }
                 }

@@ -54,8 +54,18 @@ android {
     }
 
     buildTypes {
-        release {
+        debug {
             isMinifyEnabled = false
+        }
+
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
 
             if (file("release.keystore").exists()) {
                 signingConfig = signingConfigs.getByName("release")
@@ -87,7 +97,6 @@ dependencies {
     implementation("androidx.navigation3:navigation3-runtime:1.1.4")
 
     implementation("com.github.topjohnwu.libsu:core:5.2.2")
-    implementation("com.github.topjohnwu.libsu:service:5.2.2")
 
     compileOnly(libs.xposed.api)
 

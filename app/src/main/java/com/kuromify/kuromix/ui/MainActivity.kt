@@ -14,6 +14,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.calculateBottomPadding
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.navigation3.runtime.NavEntry
@@ -118,7 +119,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     ) { padding ->
-                        Box(Modifier.padding(padding)) {
+                        Box(Modifier.padding(bottom = padding.calculateBottomPadding())) {
                             NavDisplay(
                                 modifier = Modifier.fillMaxSize(),
                                 backStack = backStack,

@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,6 +35,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 enum class ModuleStatus {
     ACTIVE,
@@ -78,11 +80,14 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
         checkRoot()
     }
 
+    val scrollBehavior = MiuixScrollBehavior()
+
     Scaffold(
         topBar = {
-            @Suppress("DEPRECATION")
-            SmallTopAppBar(
+            TopAppBar(
                 title = "KuroMix",
+                largeTitle = "KuroMix",
+                scrollBehavior = scrollBehavior,
                 actions = {
                     IconButton(
                         onClick = {
@@ -101,9 +106,7 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
                     ) {
                         Icon(imageVector = Icons.Default.Refresh, contentDescription = "Restart Scoped Apps")
                     }
-                    IconButton(
-                        onClick = onNavigateToSettings
-                    ) {
+                    IconButton(onClick = onNavigateToSettings) {
                         Icon(imageVector = MiuixIcons.Settings, contentDescription = "Settings")
                     }
                 }
@@ -113,19 +116,27 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                .overScrollVertical()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            contentPadding = PaddingValues(
+                top = padding.calculateTopPadding() + 8.dp,
+                bottom = 16.dp
+            )
         ) {
             item {
                 ActivationStatusCard(
                     status = if (isModuleActive) ModuleStatus.ACTIVE else ModuleStatus.DISABLED,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
                 )
                 Spacer(Modifier.height(16.dp))
             }
 
             item {
-                OS3GradientBanner {
+                OS3GradientBanner(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     Text(
                         text = "Kuromify The World",
                         color = Color.White,
@@ -139,7 +150,9 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
 
             item {
                 SmallTitle(text = "DEVICE STATUS")
-                Card {
+                Card(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     BasicComponent(
                         title = "Root Access",
                         summary = when (rootReady) {
@@ -161,7 +174,9 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
             item {
                 Spacer(Modifier.height(16.dp))
                 SmallTitle(text = "MODULES")
-                Card {
+                Card(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     SwitchPreference(
                         title = "Rear Screen Mirror",
                         summary = "Enable/Disable global mirroring features",
@@ -226,7 +241,12 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit) {
 
             if (status.isNotEmpty()) {
                 item {
-                    Card(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .padding(top = 16.dp)
+                    ) {
                         Text(status, modifier = Modifier.padding(12.dp))
                     }
                 }

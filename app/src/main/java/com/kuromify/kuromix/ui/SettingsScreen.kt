@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
@@ -31,10 +33,14 @@ fun SettingsScreen(onBack: () -> Unit) {
     val darkModePref by whitelistManager.darkModePrefFlow.collectAsState(initial = 0)
     var status by remember { mutableStateOf("") }
 
+    val scrollBehavior = MiuixScrollBehavior()
+
     Scaffold(
         topBar = {
-            SmallTopAppBar(
+            TopAppBar(
                 title = "Settings",
+                largeTitle = "Settings",
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -49,11 +55,17 @@ fun SettingsScreen(onBack: () -> Unit) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                .overScrollVertical()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            contentPadding = PaddingValues(
+                top = padding.calculateTopPadding() + 8.dp,
+                bottom = padding.calculateBottomPadding() + 16.dp
+            )
         ) {
             item {
-                OS3GradientBanner {
+                OS3GradientBanner(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     Text(
                         text = "Global Preferences",
                         color = Color.White,
@@ -66,7 +78,9 @@ fun SettingsScreen(onBack: () -> Unit) {
 
             item {
                 SmallTitle(text = "MIRRORING TOOLS")
-                Card {
+                Card(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     BasicComponent(
                         title = "Test Mirror (Foreground)",
                         summary = "Test your current global display area config",
@@ -87,7 +101,9 @@ fun SettingsScreen(onBack: () -> Unit) {
             item {
                 Spacer(Modifier.height(16.dp))
                 SmallTitle(text = "UI SETTINGS")
-                Card {
+                Card(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     BasicComponent(
                         title = "Dark Mode",
                         summary = when (darkModePref) {
@@ -108,7 +124,9 @@ fun SettingsScreen(onBack: () -> Unit) {
             item {
                 Spacer(Modifier.height(16.dp))
                 SmallTitle(text = "ADVANCED HACKS")
-                Card {
+                Card(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
                     SwitchPreference(
                         title = "Keep Alive on AOD",
                         summary = "Prevent apps from closing when device locks",
@@ -124,7 +142,12 @@ fun SettingsScreen(onBack: () -> Unit) {
                 }
                 
                 if (status.isNotEmpty()) {
-                    Card(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .padding(top = 16.dp)
+                    ) {
                         Text(status, modifier = Modifier.padding(12.dp))
                     }
                 }
