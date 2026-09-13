@@ -25,7 +25,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import com.kuromify.kuromix.data.WhitelistManager
 import kotlinx.coroutines.launch
@@ -64,8 +63,6 @@ class MainActivity : ComponentActivity() {
             val pagerState = rememberPagerState(pageCount = { 3 })
             val coroutineScope = rememberCoroutineScope()
             var isSettingsOpen by remember { mutableStateOf(false) }
-            val blurSupported = rememberKuroMixBlurSupported()
-            val bottomBackdrop = rememberKuroMixBackdrop(blurSupported)
             val darkModePref by whitelistManager.darkModePrefFlow.collectAsState(initial = 0)
             val themeController = remember(darkModePref) {
                 ThemeController(
@@ -106,14 +103,7 @@ class MainActivity : ComponentActivity() {
                     } else {
                         Scaffold(
                             bottomBar = {
-                                KuroMixBlurredBar(
-                                    backdrop = bottomBackdrop,
-                                    blurEnabled = blurSupported
-                                ) {
-                                    NavigationBar(
-                                        color = if (blurSupported) Color.Transparent else MiuixTheme.colorScheme.surface,
-                                        showDivider = !blurSupported
-                                    ) {
+                                NavigationBar {
                                         NavigationBarItem(
                                             selected = pagerState.currentPage == 0,
                                             onClick = {
@@ -144,16 +134,13 @@ class MainActivity : ComponentActivity() {
                                             icon = MiuixIcons.Info,
                                             label = "About"
                                         )
-                                    }
                                 }
                             }
                         ) { padding ->
                             val bottomPadding = padding.calculateBottomPadding()
                             HorizontalPager(
                                 state = pagerState,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .kuroMixBackdrop(bottomBackdrop)
+                                modifier = Modifier.fillMaxSize()
                             ) { page ->
                                 when (page) {
                                     0 -> KuroMixDashboard(

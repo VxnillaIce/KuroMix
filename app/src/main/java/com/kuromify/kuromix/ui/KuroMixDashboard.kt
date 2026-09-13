@@ -81,21 +81,13 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
     }
 
     val scrollBehavior = MiuixScrollBehavior()
-    val blurSupported = rememberKuroMixBlurSupported()
-    val backdrop = rememberKuroMixBackdrop(blurSupported)
-
     Scaffold(
         topBar = {
-            KuroMixBlurredBar(
-                backdrop = backdrop,
-                blurEnabled = blurSupported
-            ) {
-                TopAppBar(
-                    title = "KuroMix",
-                    color = if (blurSupported) Color.Transparent else MiuixTheme.colorScheme.surface,
-                    largeTitle = "KuroMix",
-                    scrollBehavior = scrollBehavior,
-                    actions = {
+            TopAppBar(
+                title = "KuroMix",
+                largeTitle = "KuroMix",
+                scrollBehavior = scrollBehavior,
+                actions = {
                     IconButton(
                         onClick = {
                             scope.launch {
@@ -116,15 +108,13 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
                         IconButton(onClick = onNavigateToSettings) {
                             Icon(imageVector = MiuixIcons.Settings, contentDescription = "Settings")
                         }
-                    }
-                )
-            }
+                }
+            )
         }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .kuroMixBackdrop(backdrop)
                 .overScrollVertical()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentPadding = PaddingValues(

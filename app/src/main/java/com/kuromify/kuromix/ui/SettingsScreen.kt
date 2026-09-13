@@ -36,36 +36,26 @@ fun SettingsScreen(onBack: () -> Unit) {
     var status by remember { mutableStateOf("") }
 
     val scrollBehavior = MiuixScrollBehavior()
-    val blurSupported = rememberKuroMixBlurSupported()
-    val backdrop = rememberKuroMixBackdrop(blurSupported)
-
     Scaffold(
         topBar = {
-            KuroMixBlurredBar(
-                backdrop = backdrop,
-                blurEnabled = blurSupported
-            ) {
-                TopAppBar(
-                    title = "Settings",
-                    color = if (blurSupported) Color.Transparent else MiuixTheme.colorScheme.surface,
-                    largeTitle = "Settings",
-                    scrollBehavior = scrollBehavior,
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back"
-                            )
-                        }
+            TopAppBar(
+                title = "Settings",
+                largeTitle = "Settings",
+                scrollBehavior = scrollBehavior,
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
                     }
-                )
-            }
+                }
+            )
         }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .kuroMixBackdrop(backdrop)
                 .overScrollVertical()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentPadding = PaddingValues(

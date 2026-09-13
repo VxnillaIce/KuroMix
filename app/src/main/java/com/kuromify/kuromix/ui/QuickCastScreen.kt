@@ -73,21 +73,13 @@ fun QuickCastScreen(bottomPadding: Dp = 0.dp) {
     }
 
     val scrollBehavior = MiuixScrollBehavior()
-    val blurSupported = rememberKuroMixBlurSupported()
-    val backdrop = rememberKuroMixBackdrop(blurSupported)
-
     Scaffold(
         topBar = {
-            KuroMixBlurredBar(
-                backdrop = backdrop,
-                blurEnabled = blurSupported
-            ) {
-                TopAppBar(
-                    title = "Quick Cast",
-                    color = if (blurSupported) Color.Transparent else MiuixTheme.colorScheme.surface,
-                    largeTitle = "Quick Cast",
-                    scrollBehavior = scrollBehavior,
-                    actions = {
+            TopAppBar(
+                title = "Quick Cast",
+                largeTitle = "Quick Cast",
+                scrollBehavior = scrollBehavior,
+                actions = {
                         if (isEditMode) {
                             val allEnabled = apps.all { perAppConfig[it.packageName]?.enabled ?: true }
                             IconButton(onClick = {
@@ -107,15 +99,13 @@ fun QuickCastScreen(bottomPadding: Dp = 0.dp) {
                                 contentDescription = "Edit"
                             )
                         }
-                    }
-                )
-            }
+                }
+            )
         }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .kuroMixBackdrop(backdrop)
                 .overScrollVertical()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentPadding = PaddingValues(
