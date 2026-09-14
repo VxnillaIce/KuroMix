@@ -13,7 +13,6 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
-import com.kuromify.kuromix.root.RootShell
 
 class KuroMixHook : IXposedHookLoadPackage {
 
@@ -172,7 +171,8 @@ class KuroMixHook : IXposedHookLoadPackage {
 
         tryHook("RootShell.isModuleActive") {
             XposedHelpers.findAndHookMethod(
-                RootShell::class.java,
+                "com.kuromify.kuromix.root.RootShell",
+                lpparam.classLoader,
                 "isModuleActive",
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(
