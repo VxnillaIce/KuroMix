@@ -5,6 +5,7 @@ import android.app.Notification
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.View
 import android.widget.TextView
@@ -12,6 +13,7 @@ import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
+import de.robv.android.xposed.XSharedPreferences
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 
 class KuroMixHook : IXposedHookLoadPackage {
@@ -50,6 +52,12 @@ class KuroMixHook : IXposedHookLoadPackage {
         private const val KUROMIX_PKG =
             "com.kuromify.kuromix"
 
+        private const val HYPERISLAND_PREFS =
+            "kuromix_hyperisland"
+
+        private const val PREF_HYPERISLAND_HOOK =
+            "hyperisland_hook_enabled"
+
         // ------------------------------------------------------------
         // Mi Pay / NFC packages
         // ------------------------------------------------------------
@@ -68,6 +76,49 @@ class KuroMixHook : IXposedHookLoadPackage {
             "com.miui.nextpay",
             "com.android.nfc"
         )
+    }
+
+    private val hyperIslandPreferences by lazy {
+        XSharedPreferences(
+            KUROMIX_PKG,
+            HYPERISLAND_PREFS
+        )
+    }
+
+    private val hyperIslandPreferenceLock = Any()
+
+    @Volatile
+    private var cachedHyperIslandHookEnabled = false
+
+    @Volatile
+    private var lastHyperIslandPreferenceReload = 0L
+
+    private fun isHyperIslandHookEnabled(): Boolean {
+        val now = SystemClock.uptimeMillis()
+
+        if (
+            now - lastHyperIslandPreferenceReload >= 250L
+        ) {
+            synchronized(hyperIslandPreferenceLock) {
+                if (
+                    now - lastHyperIslandPreferenceReload >= 250L
+                ) {
+                    cachedHyperIslandHookEnabled = try {
+                        hyperIslandPreferences.reload()
+                        hyperIslandPreferences.getBoolean(
+                            PREF_HYPERISLAND_HOOK,
+                            false
+                        )
+                    } catch (_: Throwable) {
+                        false
+                    }
+
+                    lastHyperIslandPreferenceReload = now
+                }
+            }
+        }
+
+        return cachedHyperIslandHookEnabled
     }
 
     // =================================================================
@@ -347,6 +398,10 @@ class KuroMixHook : IXposedHookLoadPackage {
                     override fun beforeHookedMethod(
                         param: MethodHookParam
                     ) {
+                        if (!isHyperIslandHookEnabled()) {
+                            return
+                        }
+
                         XposedBridge.log(
                             "$TAG: $LOG " +
                                     "SignatureChecker.checkSignatures(" +
@@ -380,6 +435,10 @@ class KuroMixHook : IXposedHookLoadPackage {
                     override fun beforeHookedMethod(
                         param: MethodHookParam
                     ) {
+                        if (!isHyperIslandHookEnabled()) {
+                            return
+                        }
+
                         XposedBridge.log(
                             "$TAG: $LOG " +
                                     "NotificationSettingsManager." +
@@ -413,6 +472,10 @@ class KuroMixHook : IXposedHookLoadPackage {
                     override fun beforeHookedMethod(
                         param: MethodHookParam
                     ) {
+                        if (!isHyperIslandHookEnabled()) {
+                            return
+                        }
+
                         XposedBridge.log(
                             "$TAG: $LOG " +
                                     "NotificationSettingsManager." +
@@ -446,6 +509,10 @@ class KuroMixHook : IXposedHookLoadPackage {
                     override fun beforeHookedMethod(
                         param: MethodHookParam
                     ) {
+                        if (!isHyperIslandHookEnabled()) {
+                            return
+                        }
+
                         XposedBridge.log(
                             "$TAG: $LOG " +
                                     "NotificationSettingsManager." +
