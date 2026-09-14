@@ -5,10 +5,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
-import android.util.Log
+import android.util.Log 
 import androidx.core.app.NotificationCompat
 import com.kuromify.kuromix.R
 import com.kuromify.kuromix.receiver.KuroMixReceiver
@@ -64,6 +65,23 @@ object SuperIslandManager {
 
     private const val PREF_HYPERISLAND_HOOK =
         "hyperisland_hook_enabled"
+
+    @Suppress("DEPRECATION")
+    private fun hyperIslandPreferences(
+        context: Context
+    ): SharedPreferences {
+        return try {
+            context.getSharedPreferences(
+                PREFS_NAME,
+                Context.MODE_WORLD_READABLE
+            )
+        } catch (_: SecurityException) {
+            context.getSharedPreferences(
+                PREFS_NAME,
+                Context.MODE_PRIVATE
+            )
+        }
+    }
 
     // ============================================================
     // DOWNLOAD STATE
@@ -201,15 +219,12 @@ object SuperIslandManager {
         context: Context
     ): Boolean {
 
-        return context
-            .getSharedPreferences(
-                PREFS_NAME,
-                Context.MODE_PRIVATE
-            )
-            .getBoolean(
-                PREF_HYPERISLAND_HOOK,
-                false
-            )
+        return hyperIslandPreferences(
+            context
+        ).getBoolean(
+            PREF_HYPERISLAND_HOOK,
+            false
+        )
     }
 
     fun setHyperIslandHookEnabled(
@@ -217,17 +232,15 @@ object SuperIslandManager {
         enabled: Boolean
     ) {
 
-        context
-            .getSharedPreferences(
-                PREFS_NAME,
-                Context.MODE_PRIVATE
-            )
+        hyperIslandPreferences(
+            context
+        )
             .edit()
             .putBoolean(
                 PREF_HYPERISLAND_HOOK,
                 enabled
             )
-            .apply()
+            .commit()
 
         Log.d(
             TAG,
