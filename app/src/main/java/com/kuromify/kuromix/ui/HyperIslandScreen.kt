@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kuromify.kuromix.notification.SuperIslandManager
 import kotlinx.coroutines.delay
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -35,7 +36,6 @@ import top.yukonga.miuix.kmp.basic.rememberScrollBarAdapter
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.interfaces.ExperimentalScrollBarApi
-import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -203,7 +203,6 @@ fun HyperIslandScreen(
                         TestEventPreference(
                             title = "Charging",
                             summary = "82% • 67W",
-                            selected = selectedTestEvent == "charging",
                             enabled = eventsEnabled,
                             onClick = {
                                 selectedTestEvent = "charging"
@@ -220,7 +219,6 @@ fun HyperIslandScreen(
                         TestEventPreference(
                             title = "Media",
                             summary = "KuroMix • HyperIsland Demo",
-                            selected = selectedTestEvent == "media",
                             enabled = eventsEnabled,
                             onClick = {
                                 selectedTestEvent = "media"
@@ -237,7 +235,6 @@ fun HyperIslandScreen(
                         TestEventPreference(
                             title = "Timer",
                             summary = "05:00 remaining",
-                            selected = selectedTestEvent == "timer",
                             enabled = eventsEnabled,
                             onClick = {
                                 selectedTestEvent = "timer"
@@ -257,7 +254,6 @@ fun HyperIslandScreen(
                             } else {
                                 "KuroMix.apk • 0% → 100%"
                             },
-                            selected = selectedTestEvent == "download",
                             enabled = eventsEnabled,
                             onClick = {
                                 selectedTestEvent = "download"
@@ -273,7 +269,6 @@ fun HyperIslandScreen(
                         TestEventPreference(
                             title = "Network",
                             summary = "5G • 128 Mbps",
-                            selected = selectedTestEvent == "network",
                             enabled = eventsEnabled,
                             onClick = {
                                 selectedTestEvent = "network"
@@ -290,7 +285,6 @@ fun HyperIslandScreen(
                         TestEventPreference(
                             title = "Gaming",
                             summary = "120 FPS • 34°C",
-                            selected = selectedTestEvent == "gaming",
                             enabled = eventsEnabled,
                             onClick = {
                                 selectedTestEvent = "gaming"
@@ -393,14 +387,12 @@ fun HyperIslandScreen(
 private fun TestEventPreference(
     title: String,
     summary: String,
-    selected: Boolean,
     enabled: Boolean,
     onClick: () -> Unit
 ) {
-    RadioButtonPreference(
+    BasicComponent(
         title = title,
         summary = summary,
-        selected = selected,
         enabled = enabled,
         onClick = onClick
     )
@@ -413,10 +405,9 @@ private fun DebugPreference(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    RadioButtonPreference(
+    BasicComponent(
         title = title,
         summary = summary,
-        selected = false,
         enabled = enabled,
         onClick = onClick
     )
