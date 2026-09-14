@@ -1,6 +1,5 @@
 package com.kuromify.kuromix.ui
 
-import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -27,9 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kuromify.kuromix.R
 import com.kuromify.kuromix.data.WhitelistManager
-import com.kuromify.kuromix.manager.RearDisplayManager
 import com.kuromify.kuromix.root.RootShell
-import com.kuromify.kuromix.service.RearDisplayService
 import com.kuromify.kuromix.ui.component.OS3GradientBanner
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +37,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -53,14 +51,17 @@ enum class ModuleStatus {
 private const val MODULE_API_LEVEL = 102
 
 @Composable
-fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp) {
+fun KuroMixDashboard(
+    onNavigateToSettings: () -> Unit,
+    onNavigateToMirrorSettings: () -> Unit,
+    onNavigateToHyperIsland: () -> Unit,
+    onNavigateToMedia: () -> Unit,
+    bottomPadding: Dp = 0.dp
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val whitelistManager = remember { WhitelistManager(context) }
-    val rearDisplays = remember { RearDisplayManager(context) }
-    var rearDisplayId by remember { mutableStateOf(rearDisplays.primaryRearDisplayId()) }
     var rootReady by remember { mutableStateOf<Boolean?>(null) }
-    val mirrorModuleEnabled by whitelistManager.mirrorModuleEnabledFlow.collectAsState(initial = false)
     val replaceMipayEnabled by whitelistManager.replaceMipayEnabledFlow.collectAsState(initial = false)
     var isModuleActive by remember { mutableStateOf(RootShell.isModuleActive()) }
     var showRestartDialog by remember { mutableStateOf(false) }
@@ -77,7 +78,6 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
                 RootShell.isRootAvailable()
             }
             isModuleActive = RootShell.isModuleActive()
-            rearDisplayId = rearDisplays.primaryRearDisplayId()
         }
     }
 
@@ -159,39 +159,35 @@ fun KuroMixDashboard(onNavigateToSettings: () -> Unit, bottomPadding: Dp = 0.dp)
                         },
                         onClick = { refreshState() }
                     )
-                    BasicComponent(
-                        title = "Rear Display",
-                        summary = if (rearDisplayId != null) "Detected (ID: $rearDisplayId)" else "Not Detected"
-                    )
                 }
             }
 
             item {
+                // Each entry here represents a whole app/module with its own settings
+                // screen. Rear Screen Mirroring, HyperIsland, and Media navigate away;
+                // Google Wallet Enable is a single inline toggle with no sub-screen.
                 Spacer(Modifier.height(16.dp))
                 SmallTitle(text = "MODULES")
                 Card(
                     modifier = Modifier.padding(horizontal = 12.dp)
                 ) {
-                    SwitchPreference(
+                    ArrowPreference(
                         title = "Rear Screen Mirroring",
-                        summary = "Enable/Disable global mirroring features",
-                        checked = mirrorModuleEnabled,
-                        onCheckedChange = {
-                            scope.launch {
-                                whitelistManager.setMirrorModuleEnabled(it)
-                                RootShell.setKeepAwakeProp(it)
-                                RootShell.setAntiKillProp(it)
-                                val intent = Intent(context, RearDisplayService::class.java)
-                                if (it) {
-                                    context.startForegroundService(intent)
-                                } else {
-                                    context.stopService(intent)
-                                }
-                            }
-                        }
+                        summary = "Mirror this device's display to an external rear screen",
+                        onClick = onNavigateToMirrorSettings
+                    )
+                    ArrowPreference(
+                        title = "HyperIsland",
+                        summary = "Customize HyperOS Island behavior",
+                        onClick = onNavigateToHyperIsland
+                    )
+                    ArrowPreference(
+                        title = "Media Player",
+                        summary = "Tweak media player behavior and features",
+                        onClick = onNavigateToMedia
                     )
                     SwitchPreference(
-                        title = "Replace Mi Pay with GPay",
+                        title = "Google Wallet Enable",
                         summary = "Remap Mi Pay double-click to Google Wallet",
                         checked = replaceMipayEnabled,
                         onCheckedChange = {
@@ -280,7 +276,6 @@ fun RestartAppsDialog(
                 "com.miui.securitycore",
                 "com.android.nfc",
                 "com.miui.tsmclient",
-                "com.unionpay.tsmservice.mi",
                 "com.miui.nextpay"
             )
         )

@@ -57,7 +57,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val pagerState = rememberPagerState(pageCount = { 3 })
             val coroutineScope = rememberCoroutineScope()
-            var isSettingsOpen by remember { mutableStateOf(false) }
+            var activeSubScreen by remember { mutableStateOf<SubScreen?>(null) }
             val darkModePref by whitelistManager.darkModePrefFlow.collectAsState(initial = 0)
             val themeController = remember(darkModePref) {
                 ThemeController(
@@ -69,9 +69,9 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            BackHandler(enabled = isSettingsOpen || pagerState.currentPage != 0) {
-                if (isSettingsOpen) {
-                    isSettingsOpen = false
+            BackHandler(enabled = activeSubScreen != null || pagerState.currentPage != 0) {
+                if (activeSubScreen != null) {
+                    activeSubScreen = null
                 } else {
                     coroutineScope.launch {
                         pagerState.animateScrollToPage(0)
@@ -81,10 +81,10 @@ class MainActivity : ComponentActivity() {
 
             MiuixTheme(controller = themeController) {
                 AnimatedContent(
-                    targetState = isSettingsOpen,
+                    targetState = activeSubScreen,
                     modifier = Modifier.fillMaxSize(),
                     transitionSpec = {
-                        if (targetState) {
+                        if (targetState != null) {
                             slideInHorizontally { it } togetherWith
                                 slideOutHorizontally { -it / 3 }
                         } else {
@@ -93,71 +93,78 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     label = "settingsTransition"
-                ) { settingsOpen ->
-                    if (settingsOpen) {
-                        SettingsScreen(onBack = { isSettingsOpen = false })
-                    } else {
-                        Scaffold(
-                            bottomBar = {
-                                NavigationBar {
-                                    NavigationBarItem(
-                                        selected = pagerState.currentPage == 0,
-                                        onClick = {
-                                            if (pagerState.currentPage != 0) {
+                ) { subScreen ->
+                    when (subScreen) {
+                        SubScreen.Settings -> SettingsScreen(onBack = { activeSubScreen = null })
+                        SubScreen.MirrorSettings -> RearScreen(onBack = { activeSubScreen = null })
+                        SubScreen.HyperIsland -> HyperIslandScreen(onBack = { activeSubScreen = null })
+                        SubScreen.Media -> MediaScreen(onBack = { activeSubScreen = null })
+                        null -> {
+                            Scaffold(
+                                bottomBar = {
+                                    NavigationBar {
+                                        NavigationBarItem(
+                                            selected = pagerState.currentPage == 0,
+                                            onClick = {
+                                                if (pagerState.currentPage != 0) {
+                                                    coroutineScope.launch {
+                                                        pagerState.animateScrollToPage(0)
+                                                    }
+                                                }
+                                            },
+                                            icon = MiuixIcons.GridView,
+                                            label = "Dashboard"
+                                        )
+                                        NavigationBarItem(
+                                            selected = pagerState.currentPage == 1,
+                                            onClick = {
+                                                if (pagerState.currentPage != 1) {
+                                                    coroutineScope.launch {
+                                                        pagerState.animateScrollToPage(1)
+                                                    }
+                                                }
+                                            },
+                                            icon = MiuixIcons.ScreenMirroring,
+                                            label = "Quick Cast"
+                                        )
+                                        NavigationBarItem(
+                                            selected = pagerState.currentPage == 2,
+                                            onClick = {
+                                                if (pagerState.currentPage != 2) {
+                                                    coroutineScope.launch {
+                                                        pagerState.animateScrollToPage(2)
+                                                    }
+                                                }
+                                            },
+                                            icon = MiuixIcons.Info,
+                                            label = "About"
+                                        )
+                                    }
+                                }
+                            ) { padding ->
+                                val bottomPadding = padding.calculateBottomPadding()
+                                HorizontalPager(
+                                    state = pagerState,
+                                    modifier = Modifier.fillMaxSize()
+                                ) { page ->
+                                    when (page) {
+                                        0 -> KuroMixDashboard(
+                                            onNavigateToSettings = { activeSubScreen = SubScreen.Settings },
+                                            onNavigateToMirrorSettings = { activeSubScreen = SubScreen.MirrorSettings },
+                                            onNavigateToHyperIsland = { activeSubScreen = SubScreen.HyperIsland },
+                                            onNavigateToMedia = { activeSubScreen = SubScreen.Media },
+                                            bottomPadding = bottomPadding
+                                        )
+                                        1 -> QuickCastScreen(bottomPadding = bottomPadding)
+                                        2 -> AboutScreen(
+                                            bottomPadding = bottomPadding,
+                                            onBack = {
                                                 coroutineScope.launch {
                                                     pagerState.animateScrollToPage(0)
                                                 }
                                             }
-                                        },
-                                        icon = MiuixIcons.GridView,
-                                        label = "Dashboard"
-                                    )
-                                    NavigationBarItem(
-                                        selected = pagerState.currentPage == 1,
-                                        onClick = {
-                                            if (pagerState.currentPage != 1) {
-                                                coroutineScope.launch {
-                                                    pagerState.animateScrollToPage(1)
-                                                }
-                                            }
-                                        },
-                                        icon = MiuixIcons.ScreenMirroring,
-                                        label = "Quick Cast"
-                                    )
-                                    NavigationBarItem(
-                                        selected = pagerState.currentPage == 2,
-                                        onClick = {
-                                            if (pagerState.currentPage != 2) {
-                                                coroutineScope.launch {
-                                                    pagerState.animateScrollToPage(2)
-                                                }
-                                            }
-                                        },
-                                        icon = MiuixIcons.Info,
-                                        label = "About"
-                                    )
-                                }
-                            }
-                        ) { padding ->
-                            val bottomPadding = padding.calculateBottomPadding()
-                            HorizontalPager(
-                                state = pagerState,
-                                modifier = Modifier.fillMaxSize()
-                            ) { page ->
-                                when (page) {
-                                    0 -> KuroMixDashboard(
-                                        onNavigateToSettings = { isSettingsOpen = true },
-                                        bottomPadding = bottomPadding
-                                    )
-                                    1 -> QuickCastScreen(bottomPadding = bottomPadding)
-                                    2 -> AboutScreen(
-                                        bottomPadding = bottomPadding,
-                                        onBack = {
-                                            coroutineScope.launch {
-                                                pagerState.animateScrollToPage(0)
-                                            }
-                                        }
-                                    )
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -167,3 +174,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+enum class SubScreen {
+    Settings,
+    MirrorSettings,
+    HyperIsland,
+    Media
+}
+
