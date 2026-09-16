@@ -218,7 +218,7 @@ fun HyperIslandScreen(
 
                         TestEventPreference(
                             title = "Media",
-                            summary = "KuroMix • HyperIsland Demo",
+                            summary = "Please allow the app to read, reply & control in settings.",
                             enabled = eventsEnabled,
                             onClick = {
                                 selectedTestEvent = "media"
@@ -226,8 +226,8 @@ fun HyperIslandScreen(
 
                                 SuperIslandManager.showMediaTest(
                                     context = context,
-                                    artist = "KuroMix",
-                                    title = "HyperIsland Demo"
+                                    artist = "Media",
+                                    title = "Detecting Media.."
                                 )
                             }
                         )
