@@ -38,6 +38,7 @@ import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.interfaces.ExperimentalScrollBarApi
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalScrollBarApi::class)
 @Composable
@@ -72,7 +73,7 @@ fun HyperIslandScreen(
             if (downloadTestRunning != running) {
                 downloadTestRunning = running
             }
-            delay(250L)
+            delay(250L.milliseconds)
         }
     }
 
