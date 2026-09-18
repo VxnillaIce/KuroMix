@@ -8,7 +8,6 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import android.widget.TextView
-import de.robv.android.xposed.AndroidAppHelper
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -39,6 +38,7 @@ class KuroMixHook : IXposedHookLoadPackage {
 
         private const val KUROMIX_PKG =
             "com.kuromify.kuromix"
+
         private const val HYPERISLAND_SETTING =
             "kuromix_hyperisland_hook"
 
@@ -65,13 +65,24 @@ class KuroMixHook : IXposedHookLoadPackage {
         ConcurrentHashMap.newKeySet<Class<*>>()
 
     private fun isHyperIslandHookEnabled(): Boolean {
-        val app =
-            AndroidAppHelper.currentApplication()
+        val application =
+            runCatching {
+                val activityThread =
+                    XposedHelpers.findClass(
+                        "android.app.ActivityThread",
+                        null
+                    )
+
+                XposedHelpers.callStaticMethod(
+                    activityThread,
+                    "currentApplication"
+                ) as? android.app.Application
+            }.getOrNull()
                 ?: return false
 
         return try {
             Settings.Global.getInt(
-                app.contentResolver,
+                application.contentResolver,
                 HYPERISLAND_SETTING,
                 0
             ) == 1
@@ -264,17 +275,22 @@ class KuroMixHook : IXposedHookLoadPackage {
         }
     }
 
-    private fun hookSystemUiPluginLoader(
+    private fun hookDynamicIslandWhitelist(
         lpparam: XC_LoadPackage.LoadPackageParam
     ) {
+        installIslandWhitelistHooks(
+            lpparam.classLoader
+        )
+
         tryHook(
             "SystemUIPlugin.PluginFactory.createClassLoader"
         ) {
             val factoryClass =
-                XposedHelpers.findClass(
-                    "com.android.systemui.shared.plugins.PluginInstance$PluginFactory",
+                XposedHelpers.findClassIfExists(
+                    "com.android.systemui.shared.plugins.PluginInstance\$PluginFactory",
                     lpparam.classLoader
                 )
+                    ?: return@tryHook
 
             XposedBridge.hookAllMethods(
                 factoryClass,
@@ -299,10 +315,11 @@ class KuroMixHook : IXposedHookLoadPackage {
             "SystemUIPlugin.PluginInstance.loadPlugin"
         ) {
             val pluginInstanceClass =
-                XposedHelpers.findClass(
+                XposedHelpers.findClassIfExists(
                     "com.android.systemui.shared.plugins.PluginInstance",
                     lpparam.classLoader
                 )
+                    ?: return@tryHook
 
             XposedBridge.hookAllMethods(
                 pluginInstanceClass,
@@ -311,34 +328,9 @@ class KuroMixHook : IXposedHookLoadPackage {
                     override fun afterHookedMethod(
                         param: MethodHookParam
                     ) {
-                        val packageName =
-                            runCatching {
-                                XposedHelpers.callMethod(
-                                    param.thisObject,
-                                    "getPackageName"
-                                ) as? String
-                            }.getOrNull()
-
-                        val plugin =
-                            runCatching {
-                                XposedHelpers.callMethod(
-                                    param.thisObject,
-                                    "getPlugin"
-                                )
-                            }.getOrNull()
-                                ?: return
-
-                        val loader =
-                            plugin.javaClass.classLoader
-                                ?: return
-
-                        XposedBridge.log(
-                            "$TAG: $LOG Plugin loaded: " +
-                                "${packageName ?: "unknown"}"
-                        )
-
-                        installIslandWhitelistHooks(
-                            loader
+                        collectIslandPluginLoaders(
+                            param.thisObject,
+                            param.result
                         )
                     }
                 }
@@ -346,10 +338,54 @@ class KuroMixHook : IXposedHookLoadPackage {
         }
     }
 
+    private fun collectIslandPluginLoaders(
+        instance: Any?,
+        result: Any?
+    ) {
+        val loaders =
+            LinkedHashSet<ClassLoader>()
+
+        if (result is ClassLoader) {
+            loaders.add(result)
+        }
+
+        result?.javaClass
+            ?.classLoader
+            ?.let(loaders::add)
+
+        instance?.javaClass
+            ?.classLoader
+            ?.let(loaders::add)
+
+        instance?.javaClass
+            ?.declaredFields
+            ?.forEach { field ->
+                runCatching {
+                    field.isAccessible = true
+                    field.get(instance)
+                }.getOrNull()
+                    ?.let { value ->
+                        if (value is ClassLoader) {
+                            loaders.add(value)
+                        }
+
+                        value.javaClass
+                            .classLoader
+                            ?.let(loaders::add)
+                    }
+            }
+
+        loaders.forEach { loader ->
+            installIslandWhitelistHooks(
+                loader
+            )
+        }
+    }
+
     private fun installIslandWhitelistHooks(
         classLoader: ClassLoader
     ) {
-        if (!islandPluginLoaders.add(classLoader)) {
+        if (islandPluginLoaders.contains(classLoader)) {
             return
         }
 
@@ -372,6 +408,8 @@ class KuroMixHook : IXposedHookLoadPackage {
             return
         }
 
+        islandPluginLoaders.add(classLoader)
+
         checkerClass?.let { clazz ->
             if (islandHookedClasses.add(clazz)) {
                 tryHook(
@@ -385,9 +423,7 @@ class KuroMixHook : IXposedHookLoadPackage {
                             override fun beforeHookedMethod(
                                 param: MethodHookParam
                             ) {
-                                if (
-                                    isHyperIslandHookEnabled()
-                                ) {
+                                if (isHyperIslandHookEnabled()) {
                                     param.result = true
                                 }
                             }
@@ -410,10 +446,6 @@ class KuroMixHook : IXposedHookLoadPackage {
                 )
             }
         }
-
-        XposedBridge.log(
-            "$TAG: $LOG Island whitelist plugin classes resolved"
-        )
     }
 
     private fun hookIslandBooleanMethod(
@@ -430,9 +462,7 @@ class KuroMixHook : IXposedHookLoadPackage {
                     override fun beforeHookedMethod(
                         param: MethodHookParam
                     ) {
-                        if (
-                            isHyperIslandHookEnabled()
-                        ) {
+                        if (isHyperIslandHookEnabled()) {
                             param.result = true
                         }
                     }
@@ -1181,14 +1211,7 @@ class KuroMixHook : IXposedHookLoadPackage {
                     lpparam.packageName
         )
 
-        if (
-            lpparam.packageName ==
-            "com.android.systemui"
-        ) {
-            hookSystemUiPluginLoader(
-                lpparam
-            )
-        }
+        hookDynamicIslandWhitelist(lpparam)
 
         tryHook(
             "SpotlightController.isSpotlightAvailable"
