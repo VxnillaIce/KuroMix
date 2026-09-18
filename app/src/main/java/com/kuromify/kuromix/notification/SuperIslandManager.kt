@@ -55,6 +55,7 @@ object SuperIslandManager {
 
     private const val EXTRA_FOCUS_ACTIONS =
         "miui.focus.actions"
+
     private const val HYPERISLAND_SETTING =
         "kuromix_hyperisland_hook"
 
@@ -105,8 +106,6 @@ object SuperIslandManager {
     private var lastMediaToggleMs = 0L
 
     private const val MEDIA_TOGGLE_DEBOUNCE_MS = 350L
-
-    }
 
     private val mainHandler =
         android.os.Handler(
