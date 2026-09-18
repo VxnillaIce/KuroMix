@@ -5,16 +5,16 @@ import android.app.Notification
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.os.SystemClock
 import android.provider.Settings
 import android.view.View
 import android.widget.TextView
+import de.robv.android.xposed.AndroidAppHelper
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
-import de.robv.android.xposed.XSharedPreferences
 import de.robv.android.xposed.callbacks.XC_LoadPackage
+import java.util.concurrent.ConcurrentHashMap
 
 class KuroMixHook : IXposedHookLoadPackage {
 
@@ -23,15 +23,7 @@ class KuroMixHook : IXposedHookLoadPackage {
         private const val TAG = "KuroMixHook"
         private const val LOG = "[KUROMIX_HOOK]"
 
-        // ------------------------------------------------------------
-        // Rear display
-        // ------------------------------------------------------------
-
         private const val REAR_DISPLAY_ID = 1
-
-        // ------------------------------------------------------------
-        // Google Wallet
-        // ------------------------------------------------------------
 
         private const val GOOGLE_WALLET_PKG =
             "com.google.android.apps.walletnfcrel"
@@ -45,22 +37,10 @@ class KuroMixHook : IXposedHookLoadPackage {
         private const val GOOGLE_WALLET_VALUE =
             "google_wallet"
 
-        // ------------------------------------------------------------
-        // KuroMix
-        // ------------------------------------------------------------
-
         private const val KUROMIX_PKG =
             "com.kuromify.kuromix"
-
-        private const val HYPERISLAND_PREFS =
-            "kuromix_hyperisland"
-
-        private const val PREF_HYPERISLAND_HOOK =
-            "hyperisland_hook_enabled"
-
-        // ------------------------------------------------------------
-        // Mi Pay / NFC packages
-        // ------------------------------------------------------------
+        private const val HYPERISLAND_SETTING =
+            "kuromix_hyperisland_hook"
 
         private val MI_PAY_STRINGS = arrayOf(
             "Mi Pay",
@@ -78,52 +58,27 @@ class KuroMixHook : IXposedHookLoadPackage {
         )
     }
 
-    private val hyperIslandPreferences by lazy {
-        XSharedPreferences(
-            KUROMIX_PKG,
-            HYPERISLAND_PREFS
-        )
-    }
+    private val islandPluginLoaders =
+        ConcurrentHashMap.newKeySet<ClassLoader>()
 
-    private val hyperIslandPreferenceLock = Any()
-
-    @Volatile
-    private var cachedHyperIslandHookEnabled = false
-
-    @Volatile
-    private var lastHyperIslandPreferenceReload = 0L
+    private val islandHookedClasses =
+        ConcurrentHashMap.newKeySet<Class<*>>()
 
     private fun isHyperIslandHookEnabled(): Boolean {
-        val now = SystemClock.uptimeMillis()
+        val app =
+            AndroidAppHelper.currentApplication()
+                ?: return false
 
-        if (
-            now - lastHyperIslandPreferenceReload >= 250L
-        ) {
-            synchronized(hyperIslandPreferenceLock) {
-                if (
-                    now - lastHyperIslandPreferenceReload >= 250L
-                ) {
-                    cachedHyperIslandHookEnabled = try {
-                        hyperIslandPreferences.reload()
-                        hyperIslandPreferences.getBoolean(
-                            PREF_HYPERISLAND_HOOK,
-                            false
-                        )
-                    } catch (_: Throwable) {
-                        false
-                    }
-
-                    lastHyperIslandPreferenceReload = now
-                }
-            }
+        return try {
+            Settings.Global.getInt(
+                app.contentResolver,
+                HYPERISLAND_SETTING,
+                0
+            ) == 1
+        } catch (_: Throwable) {
+            false
         }
-
-        return cachedHyperIslandHookEnabled
     }
-
-    // =================================================================
-    // Generic safe hook helper
-    // =================================================================
 
     private fun tryHook(
         name: String,
@@ -143,36 +98,20 @@ class KuroMixHook : IXposedHookLoadPackage {
         }
     }
 
-    // =================================================================
-    // Load package
-    // =================================================================
-
     override fun handleLoadPackage(
         lpparam: XC_LoadPackage.LoadPackageParam
     ) {
         when (lpparam.packageName) {
 
-            // ---------------------------------------------------------
-            // Android framework / system_server
-            // ---------------------------------------------------------
-
             "android" -> {
                 hookSystemServer(lpparam)
             }
-
-            // ---------------------------------------------------------
-            // SystemUI / MIUI notification stack
-            // ---------------------------------------------------------
 
             "com.android.systemui",
             "com.miui.notification",
             "com.miui.securitycenter" -> {
                 hookSystemUI(lpparam)
             }
-
-            // ---------------------------------------------------------
-            // Mi Input / Settings / NFC
-            // ---------------------------------------------------------
 
             "com.miui.miinput",
             "com.miui.securitycore",
@@ -182,36 +121,20 @@ class KuroMixHook : IXposedHookLoadPackage {
                 hookSettingsUI(lpparam)
             }
 
-            // ---------------------------------------------------------
-            // Xiaomi rear display service
-            // ---------------------------------------------------------
-
             "com.xiaomi.subscreencenter" -> {
                 hookSubScreenCenter(lpparam)
             }
-
-            // ---------------------------------------------------------
-            // Mi Pay / payment services
-            // ---------------------------------------------------------
 
             in TARGET_PKGS -> {
                 hookMiPayProcesses(lpparam)
                 hookSettingsUI(lpparam)
             }
 
-            // ---------------------------------------------------------
-            // KuroMix itself
-            // ---------------------------------------------------------
-
             KUROMIX_PKG -> {
                 hookSelf(lpparam)
             }
         }
     }
-
-    // =================================================================
-    // KuroMix self hooks
-    // =================================================================
 
     private fun hookSelf(
         lpparam: XC_LoadPackage.LoadPackageParam
@@ -235,10 +158,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             )
         }
     }
-
-    // =================================================================
-    // System property helper
-    // =================================================================
 
     private fun getSysProp(
         key: String
@@ -264,10 +183,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             false
         }
     }
-
-    // =================================================================
-    // Mi Pay process redirection
-    // =================================================================
 
     private fun hookMiPayProcesses(
         lpparam: XC_LoadPackage.LoadPackageParam
@@ -316,10 +231,6 @@ class KuroMixHook : IXposedHookLoadPackage {
         }
     }
 
-    // =================================================================
-    // Launch Google Wallet
-    // =================================================================
-
     private fun launchGoogleWallet(
         context: Context
     ) {
@@ -353,182 +264,182 @@ class KuroMixHook : IXposedHookLoadPackage {
         }
     }
 
-    // =================================================================
-    // Dynamic Island / Focus notification whitelist
-    //
-    // Based on XiaomiHelper IslandWhitelist:
-    //
-    // SignatureChecker.checkSignatures(String) -> true
-    // NotificationSettingsManager.canShowFocus() -> true
-    // NotificationSettingsManager.canCustomFocus() -> true
-    // NotificationSettingsManager.mediaIslandSupportMiniWindow() -> true
-    //
-    // IMPORTANT:
-    // canShowFocus / canCustomFocus / mediaIslandSupportMiniWindow
-    // intentionally use XposedBridge.hookAllMethods() because Xiaomi
-    // can change their parameter signatures between HyperOS builds.
-    // =================================================================
-
-    private fun hookDynamicIslandWhitelist(
+    private fun hookSystemUiPluginLoader(
         lpparam: XC_LoadPackage.LoadPackageParam
     ) {
-        XposedBridge.log(
-            "$TAG: $LOG Installing Dynamic Island whitelist hooks"
-        )
-
-        // -------------------------------------------------------------
-        // SignatureChecker.checkSignatures(String)
-        // -------------------------------------------------------------
-
         tryHook(
-            "DynamicIsland.SignatureChecker.checkSignatures"
+            "SystemUIPlugin.PluginFactory.createClassLoader"
         ) {
-            val checkerClass =
+            val factoryClass =
                 XposedHelpers.findClass(
-                    "miui.systemui.notification.focus.SignatureChecker",
+                    "com.android.systemui.shared.plugins.PluginInstance$PluginFactory",
                     lpparam.classLoader
                 )
 
-            XposedHelpers.findAndHookMethod(
-                checkerClass,
-                "checkSignatures",
-                String::class.java,
+            XposedBridge.hookAllMethods(
+                factoryClass,
+                "createClassLoader",
                 object : XC_MethodHook() {
-
-                    override fun beforeHookedMethod(
+                    override fun afterHookedMethod(
                         param: MethodHookParam
                     ) {
-                        if (!isHyperIslandHookEnabled()) {
-                            return
-                        }
+                        val loader =
+                            param.result as? ClassLoader
+                                ?: return
 
-                        XposedBridge.log(
-                            "$TAG: $LOG " +
-                                    "SignatureChecker.checkSignatures(" +
-                                    "${param.args.getOrNull(0)}) -> true"
+                        installIslandWhitelistHooks(
+                            loader
                         )
-
-                        param.result = true
                     }
                 }
             )
         }
 
-        // -------------------------------------------------------------
-        // NotificationSettingsManager
-        // -------------------------------------------------------------
-
         tryHook(
-            "DynamicIsland.NotificationSettingsManager.canShowFocus"
+            "SystemUIPlugin.PluginInstance.loadPlugin"
         ) {
-            val managerClass =
+            val pluginInstanceClass =
                 XposedHelpers.findClass(
-                    "miui.systemui.notification.NotificationSettingsManager",
+                    "com.android.systemui.shared.plugins.PluginInstance",
                     lpparam.classLoader
                 )
 
             XposedBridge.hookAllMethods(
-                managerClass,
-                "canShowFocus",
+                pluginInstanceClass,
+                "loadPlugin",
                 object : XC_MethodHook() {
-
-                    override fun beforeHookedMethod(
+                    override fun afterHookedMethod(
                         param: MethodHookParam
                     ) {
-                        if (!isHyperIslandHookEnabled()) {
-                            return
-                        }
+                        val packageName =
+                            runCatching {
+                                XposedHelpers.callMethod(
+                                    param.thisObject,
+                                    "getPackageName"
+                                ) as? String
+                            }.getOrNull()
+
+                        val plugin =
+                            runCatching {
+                                XposedHelpers.callMethod(
+                                    param.thisObject,
+                                    "getPlugin"
+                                )
+                            }.getOrNull()
+                                ?: return
+
+                        val loader =
+                            plugin.javaClass.classLoader
+                                ?: return
 
                         XposedBridge.log(
-                            "$TAG: $LOG " +
-                                    "NotificationSettingsManager." +
-                                    "canShowFocus() -> true"
+                            "$TAG: $LOG Plugin loaded: " +
+                                "${packageName ?: "unknown"}"
                         )
 
-                        param.result = true
-                    }
-                }
-            )
-        }
-
-        // -------------------------------------------------------------
-        // canCustomFocus
-        // -------------------------------------------------------------
-
-        tryHook(
-            "DynamicIsland.NotificationSettingsManager.canCustomFocus"
-        ) {
-            val managerClass =
-                XposedHelpers.findClass(
-                    "miui.systemui.notification.NotificationSettingsManager",
-                    lpparam.classLoader
-                )
-
-            XposedBridge.hookAllMethods(
-                managerClass,
-                "canCustomFocus",
-                object : XC_MethodHook() {
-
-                    override fun beforeHookedMethod(
-                        param: MethodHookParam
-                    ) {
-                        if (!isHyperIslandHookEnabled()) {
-                            return
-                        }
-
-                        XposedBridge.log(
-                            "$TAG: $LOG " +
-                                    "NotificationSettingsManager." +
-                                    "canCustomFocus() -> true"
+                        installIslandWhitelistHooks(
+                            loader
                         )
-
-                        param.result = true
-                    }
-                }
-            )
-        }
-
-        // -------------------------------------------------------------
-        // Media Island mini window
-        // -------------------------------------------------------------
-
-        tryHook(
-            "DynamicIsland.NotificationSettingsManager.mediaIslandSupportMiniWindow"
-        ) {
-            val managerClass =
-                XposedHelpers.findClass(
-                    "miui.systemui.notification.NotificationSettingsManager",
-                    lpparam.classLoader
-                )
-
-            XposedBridge.hookAllMethods(
-                managerClass,
-                "mediaIslandSupportMiniWindow",
-                object : XC_MethodHook() {
-
-                    override fun beforeHookedMethod(
-                        param: MethodHookParam
-                    ) {
-                        if (!isHyperIslandHookEnabled()) {
-                            return
-                        }
-
-                        XposedBridge.log(
-                            "$TAG: $LOG " +
-                                    "NotificationSettingsManager." +
-                                    "mediaIslandSupportMiniWindow() -> true"
-                        )
-
-                        param.result = true
                     }
                 }
             )
         }
     }
 
-    // =================================================================
-    // NotificationFilterHelper
-    // =================================================================
+    private fun installIslandWhitelistHooks(
+        classLoader: ClassLoader
+    ) {
+        if (!islandPluginLoaders.add(classLoader)) {
+            return
+        }
+
+        val checkerClass =
+            XposedHelpers.findClassIfExists(
+                "miui.systemui.notification.focus.SignatureChecker",
+                classLoader
+            )
+
+        val managerClass =
+            XposedHelpers.findClassIfExists(
+                "miui.systemui.notification.NotificationSettingsManager",
+                classLoader
+            )
+
+        if (
+            checkerClass == null &&
+            managerClass == null
+        ) {
+            return
+        }
+
+        checkerClass?.let { clazz ->
+            if (islandHookedClasses.add(clazz)) {
+                tryHook(
+                    "IslandWhitelist.SignatureChecker.checkSignatures"
+                ) {
+                    XposedHelpers.findAndHookMethod(
+                        clazz,
+                        "checkSignatures",
+                        String::class.java,
+                        object : XC_MethodHook() {
+                            override fun beforeHookedMethod(
+                                param: MethodHookParam
+                            ) {
+                                if (
+                                    isHyperIslandHookEnabled()
+                                ) {
+                                    param.result = true
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        managerClass?.let { clazz ->
+            if (islandHookedClasses.add(clazz)) {
+                hookIslandBooleanMethod(
+                    clazz,
+                    "canShowFocus"
+                )
+
+                hookIslandBooleanMethod(
+                    clazz,
+                    "canCustomFocus"
+                )
+            }
+        }
+
+        XposedBridge.log(
+            "$TAG: $LOG Island whitelist plugin classes resolved"
+        )
+    }
+
+    private fun hookIslandBooleanMethod(
+        clazz: Class<*>,
+        methodName: String
+    ) {
+        tryHook(
+            "IslandWhitelist.$methodName"
+        ) {
+            XposedBridge.hookAllMethods(
+                clazz,
+                methodName,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(
+                        param: MethodHookParam
+                    ) {
+                        if (
+                            isHyperIslandHookEnabled()
+                        ) {
+                            param.result = true
+                        }
+                    }
+                }
+            )
+        }
+    }
 
     private fun hookNotificationFilterHelper(
         lpparam: XC_LoadPackage.LoadPackageParam
@@ -545,10 +456,6 @@ class KuroMixHook : IXposedHookLoadPackage {
                 clazz,
                 "NotificationFilterHelper"
             )
-
-            // ---------------------------------------------------------
-            // isImportantNotification(Context, String)
-            // ---------------------------------------------------------
 
             try {
                 XposedHelpers.findAndHookMethod(
@@ -579,10 +486,6 @@ class KuroMixHook : IXposedHookLoadPackage {
                 )
             } catch (_: Throwable) {
             }
-
-            // ---------------------------------------------------------
-            // isImportantNotification(Context, String, Notification)
-            // ---------------------------------------------------------
 
             try {
                 XposedHelpers.findAndHookMethod(
@@ -615,10 +518,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             } catch (_: Throwable) {
             }
 
-            // ---------------------------------------------------------
-            // isAllowedShowFocus(Context, String)
-            // ---------------------------------------------------------
-
             try {
                 XposedHelpers.findAndHookMethod(
                     clazz,
@@ -649,10 +548,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             } catch (_: Throwable) {
             }
 
-            // ---------------------------------------------------------
-            // isSupportFocus(String)
-            // ---------------------------------------------------------
-
             try {
                 XposedHelpers.findAndHookMethod(
                     clazz,
@@ -682,10 +577,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             } catch (_: Throwable) {
             }
 
-            // ---------------------------------------------------------
-            // isSystemApp(String)
-            // ---------------------------------------------------------
-
             try {
                 XposedHelpers.findAndHookMethod(
                     clazz,
@@ -709,10 +600,6 @@ class KuroMixHook : IXposedHookLoadPackage {
                 )
             } catch (_: Throwable) {
             }
-
-            // ---------------------------------------------------------
-            // isAllowedShowResidentNotification(Context, String)
-            // ---------------------------------------------------------
 
             try {
                 XposedHelpers.findAndHookMethod(
@@ -744,10 +631,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             } catch (_: Throwable) {
             }
 
-            // ---------------------------------------------------------
-            // isSupportResidentNotification(String)
-            // ---------------------------------------------------------
-
             try {
                 XposedHelpers.findAndHookMethod(
                     clazz,
@@ -773,10 +656,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             }
         }
     }
-
-    // =================================================================
-    // Dump methods
-    // =================================================================
 
     private fun dumpClassMethods(
         clazz: Class<*>,
@@ -808,10 +687,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             )
         }
     }
-
-    // =================================================================
-    // FocusNotificationManager
-    // =================================================================
 
     private fun hookFocusNotificationManager(
         lpparam: XC_LoadPackage.LoadPackageParam
@@ -854,10 +729,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             )
         }
     }
-
-    // =================================================================
-    // Power key double click
-    // =================================================================
 
     private fun hookPowerKeyDoubleClick(
         lpparam: XC_LoadPackage.LoadPackageParam
@@ -928,20 +799,11 @@ class KuroMixHook : IXposedHookLoadPackage {
         }
     }
 
-    // =================================================================
-    // Settings UI
-    // =================================================================
-
     private fun hookSettingsUI(
         lpparam: XC_LoadPackage.LoadPackageParam
     ) {
-        // Keep notification diagnostics available in Settings /
-        // related MIUI processes.
-        hookNotificationFilterHelper(lpparam)
 
-        // -------------------------------------------------------------
-        // Replace Mi Pay text
-        // -------------------------------------------------------------
+        hookNotificationFilterHelper(lpparam)
 
         tryHook("Settings Mi Pay text replacement") {
 
@@ -979,10 +841,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             } catch (_: Throwable) {
             }
 
-            // ---------------------------------------------------------
-            // TextView.setText(CharSequence)
-            // ---------------------------------------------------------
-
             try {
                 XposedHelpers.findAndHookMethod(
                     TextView::class.java,
@@ -1016,10 +874,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             } catch (_: Throwable) {
             }
         }
-
-        // -------------------------------------------------------------
-        // DoubleClickPowerKeySettingsActivity
-        // -------------------------------------------------------------
 
         tryHook(
             "DoubleClickPowerKeySettingsActivity.onResume"
@@ -1055,10 +909,6 @@ class KuroMixHook : IXposedHookLoadPackage {
         }
     }
 
-    // =================================================================
-    // Mi Pay replacement enabled
-    // =================================================================
-
     private fun isMiPayReplacementEnabled(
         lpparam: XC_LoadPackage.LoadPackageParam
     ): Boolean {
@@ -1070,10 +920,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             false
         }
     }
-
-    // =================================================================
-    // Sync Google Wallet selection
-    // =================================================================
 
     private fun syncSelection(
         activity: Activity
@@ -1114,10 +960,6 @@ class KuroMixHook : IXposedHookLoadPackage {
         }
     }
 
-    // =================================================================
-    // Update row state
-    // =================================================================
-
     private fun updateSelectionState(
         view: View,
         selected: Boolean
@@ -1142,10 +984,6 @@ class KuroMixHook : IXposedHookLoadPackage {
         } catch (_: Throwable) {
         }
     }
-
-    // =================================================================
-    // Find row by text
-    // =================================================================
 
     private fun findRowByText(
         root: View,
@@ -1185,10 +1023,6 @@ class KuroMixHook : IXposedHookLoadPackage {
         return null
     }
 
-    // =================================================================
-    // Find clickable ancestor
-    // =================================================================
-
     private fun findClickableAncestor(
         view: View
     ): View {
@@ -1215,16 +1049,9 @@ class KuroMixHook : IXposedHookLoadPackage {
         return view
     }
 
-    // =================================================================
-    // MiInput
-    // =================================================================
-
     private fun hookMiInput(
         lpparam: XC_LoadPackage.LoadPackageParam
     ) {
-        // -------------------------------------------------------------
-        // Mi Pay text replacement
-        // -------------------------------------------------------------
 
         tryHook("MiInput Mi Pay text replacement") {
 
@@ -1265,10 +1092,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             } catch (_: Throwable) {
             }
         }
-
-        // -------------------------------------------------------------
-        // Add Google Wallet gesture item
-        // -------------------------------------------------------------
 
         tryHook(
             "DoubleClickPowerKeySettingsActivity.getItems"
@@ -1350,10 +1173,6 @@ class KuroMixHook : IXposedHookLoadPackage {
         }
     }
 
-    // =================================================================
-    // SystemUI
-    // =================================================================
-
     private fun hookSystemUI(
         lpparam: XC_LoadPackage.LoadPackageParam
     ) {
@@ -1362,16 +1181,14 @@ class KuroMixHook : IXposedHookLoadPackage {
                     lpparam.packageName
         )
 
-        // -------------------------------------------------------------
-        // NEW:
-        // Xiaomi Dynamic Island whitelist bypass
-        // -------------------------------------------------------------
-
-        hookDynamicIslandWhitelist(lpparam)
-
-        // -------------------------------------------------------------
-        // SpotlightController
-        // -------------------------------------------------------------
+        if (
+            lpparam.packageName ==
+            "com.android.systemui"
+        ) {
+            hookSystemUiPluginLoader(
+                lpparam
+            )
+        }
 
         tryHook(
             "SpotlightController.isSpotlightAvailable"
@@ -1430,10 +1247,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             )
         }
 
-        // -------------------------------------------------------------
-        // Resident notification
-        // -------------------------------------------------------------
-
         tryHook(
             "MiuiNotificationHelper.isResidentNotification"
         ) {
@@ -1480,10 +1293,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             )
         }
 
-        // -------------------------------------------------------------
-        // Existing notification hooks
-        // -------------------------------------------------------------
-
         hookFocusNotificationManager(
             lpparam
         )
@@ -1492,18 +1301,10 @@ class KuroMixHook : IXposedHookLoadPackage {
             lpparam
         )
 
-        // -------------------------------------------------------------
-        // Existing power key support
-        // -------------------------------------------------------------
-
         hookPowerKeyDoubleClick(
             lpparam
         )
     }
-
-    // =================================================================
-    // system_server
-    // =================================================================
 
     private fun hookSystemServer(
         lpparam: XC_LoadPackage.LoadPackageParam
@@ -1511,10 +1312,6 @@ class KuroMixHook : IXposedHookLoadPackage {
         XposedBridge.log(
             "$TAG: $LOG system_server loaded"
         )
-
-        // -------------------------------------------------------------
-        // Optional Mi Pay -> Google Wallet redirect
-        // -------------------------------------------------------------
 
         tryHook(
             "ActivityTaskManagerService.startActivity"
@@ -1582,10 +1379,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             )
         }
 
-        // -------------------------------------------------------------
-        // Rear display keep-awake
-        // -------------------------------------------------------------
-
         tryHook(
             "RootWindowContainer.shouldRecallTask"
         ) {
@@ -1650,10 +1443,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             )
         }
 
-        // -------------------------------------------------------------
-        // SubScreenManagerService.isSupportSubScreen
-        // -------------------------------------------------------------
-
         tryHook(
             "SubScreenManagerService.isSupportSubScreen"
         ) {
@@ -1678,10 +1467,6 @@ class KuroMixHook : IXposedHookLoadPackage {
                 }
             )
         }
-
-        // -------------------------------------------------------------
-        // setSubDisplayPowerMode
-        // -------------------------------------------------------------
 
         tryHook(
             "SubScreenManagerService.setSubDisplayPowerMode"
@@ -1733,10 +1518,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             )
         }
 
-        // -------------------------------------------------------------
-        // Disable rear display double tap if keep-awake
-        // -------------------------------------------------------------
-
         tryHook(
             "SubScreenManagerService.handleSubScreenDoubleTap"
         ) {
@@ -1767,10 +1548,6 @@ class KuroMixHook : IXposedHookLoadPackage {
                 }
             )
         }
-
-        // -------------------------------------------------------------
-        // Rear display activity start
-        // -------------------------------------------------------------
 
         tryHook(
             "ActivityStarterImpl.isAllowedToStartOnRearDisplay"
@@ -1805,10 +1582,6 @@ class KuroMixHook : IXposedHookLoadPackage {
                 }
             )
         }
-
-        // -------------------------------------------------------------
-        // ProcessPolicy dynamic whitelist
-        // -------------------------------------------------------------
 
         tryHook(
             "ProcessPolicy.updateDynamicWhiteList"
@@ -1856,10 +1629,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             )
         }
 
-        // -------------------------------------------------------------
-        // ProcessPolicy.updateApplicationLockedState
-        // -------------------------------------------------------------
-
         tryHook(
             "ProcessPolicy.updateApplicationLockedState"
         ) {
@@ -1898,10 +1667,6 @@ class KuroMixHook : IXposedHookLoadPackage {
                 }
             )
         }
-
-        // -------------------------------------------------------------
-        // systemReady
-        // -------------------------------------------------------------
 
         tryHook(
             "ProcessPolicy.systemReady"
@@ -1945,10 +1710,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             )
         }
 
-        // -------------------------------------------------------------
-        // Keep existing hooks available in system_server
-        // -------------------------------------------------------------
-
         hookNotificationFilterHelper(
             lpparam
         )
@@ -1962,20 +1723,12 @@ class KuroMixHook : IXposedHookLoadPackage {
         )
     }
 
-    // =================================================================
-    // Rear display / SubScreenCenter
-    // =================================================================
-
     private fun hookSubScreenCenter(
         lpparam: XC_LoadPackage.LoadPackageParam
     ) {
         XposedBridge.log(
             "$TAG: $LOG SubScreenCenter loaded"
         )
-
-        // -------------------------------------------------------------
-        // notifySubScreenOff
-        // -------------------------------------------------------------
 
         tryHook(
             "SubScreenStatusManager.notifySubScreenOff"
@@ -2013,10 +1766,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             )
         }
 
-        // -------------------------------------------------------------
-        // getSubScreenDisplayTime
-        // -------------------------------------------------------------
-
         tryHook(
             "SubScreenStatusManager.getSubScreenDisplayTime"
         ) {
@@ -2041,7 +1790,7 @@ class KuroMixHook : IXposedHookLoadPackage {
                                 "persist.sys.kuromix.rear_keepawake"
                             )
                         ) {
-                            // 24 hours in milliseconds.
+
                             param.result =
                                 24L * 60L * 60L * 1000L
                         }
@@ -2049,10 +1798,6 @@ class KuroMixHook : IXposedHookLoadPackage {
                 }
             )
         }
-
-        // -------------------------------------------------------------
-        // Existing notification hooks
-        // -------------------------------------------------------------
 
         hookFocusNotificationManager(
             lpparam
@@ -2066,10 +1811,6 @@ class KuroMixHook : IXposedHookLoadPackage {
             lpparam
         )
     }
-
-    // =================================================================
-    // Intent helper
-    // =================================================================
 
     private fun contextComponent(
         original: Intent
