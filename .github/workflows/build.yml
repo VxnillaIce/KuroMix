@@ -18,14 +18,29 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      # The android-actions/setup-android action tries to install the
+      # obsolete 'tools' package by default, which causes:
+      #   Warning: Failed to find package 'tools'
+      #   sdkmanager ... failed with exit code 1
+      # Setting packages: '' disables that default install. We then
+      # install only the packages the build actually needs.
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+
+      - name: Install required Android SDK packages
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "build-tools;34.0.0" \
+            "platforms;android-34"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -119,4 +134,3 @@ jobs:
                -F "parse_mode=Markdown" \
                -F "caption=${CAPTION}" \
                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
-               

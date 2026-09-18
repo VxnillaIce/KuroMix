@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:name=".KuroMix"
@@ -97,6 +98,56 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.kuromify.kuromix.ACTION_STOP_MIRROR" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".notification.MediaSessionListenerService"
+            android:label="KuroMix Media Listener"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".receiver.KuroMixCloseReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.kuromify.kuromix.CLOSE_LIVE" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".notification.MediaSessionListenerService"
+            android:label="KuroMix Media Listener"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".receiver.KuroMixCloseReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.kuromify.kuromix.CLOSE_LIVE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Timer / Download HyperIsland action receiver -->
+        <receiver
+            android:name=".receiver.KuroMixLiveActionReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.kuromify.kuromix.TIMER_PAUSE" />
+                <action android:name="com.kuromify.kuromix.TIMER_RESUME" />
+                <action android:name="com.kuromify.kuromix.TIMER_RESET" />
+                <action android:name="com.kuromify.kuromix.DOWNLOAD_PAUSE" />
+                <action android:name="com.kuromify.kuromix.DOWNLOAD_RESUME" />
+                <action android:name="com.kuromify.kuromix.DOWNLOAD_RESET" />
             </intent-filter>
         </receiver>
 
