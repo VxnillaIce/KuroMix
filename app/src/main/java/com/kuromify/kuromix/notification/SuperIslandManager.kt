@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.media.session.MediaController
 import android.media.session.MediaSession
 import android.os.BatteryManager
@@ -21,6 +20,7 @@ import androidx.core.app.NotificationCompat
 import com.kuromify.kuromix.R
 import com.kuromify.kuromix.receiver.KuroMixCloseReceiver
 import com.kuromify.kuromix.receiver.KuroMixReceiver
+import com.topjohnwu.superuser.Shell
 import io.github.d4viddf.hyperisland_kit.HyperIslandNotification
 import io.github.d4viddf.hyperisland_kit.HyperPicture
 import io.github.d4viddf.hyperisland_kit.models.ImageTextInfoLeft
@@ -55,45 +55,8 @@ object SuperIslandManager {
 
     private const val EXTRA_FOCUS_ACTIONS =
         "miui.focus.actions"
-
-    private const val PREFS_NAME =
-        "kuromix_hyperisland"
-
-    private const val PREF_HYPERISLAND_HOOK =
-        "hyperisland_hook_enabled"
-
-    /*
-     * ------------------------------------------------------------
-     * MEDIA ACTIONS
-     * ------------------------------------------------------------
-     *
-     * IMPORTANT:
-     *
-     * MEDIA_TOGGLE is the only Play/Pause action exposed to
-     * HyperIsland.
-     *
-     * We intentionally do not create separate HyperIsland actions
-     * called "play" and "pause".
-     *
-     * HyperOS may cache a Focus action/PendingIntent by its key.
-     * If the key changes from play -> pause, the visual state may
-     * change while the old PendingIntent remains cached.
-     *
-     * Therefore:
-     *
-     *     media_toggle
-     *             |
-     *             v
-     *     check current PlaybackState
-     *             |
-     *       +-----+-----+
-     *       |           |
-     *    PLAYING     PAUSED
-     *       |           |
-     *     PAUSE        PLAY
-     *
-     * The decision is made when the user presses the button.
-     */
+    private const val HYPERISLAND_SETTING =
+        "kuromix_hyperisland_hook"
 
     const val ACTION_MEDIA_PLAY =
         "com.kuromify.kuromix.MEDIA_PLAY"
@@ -131,66 +94,19 @@ object SuperIslandManager {
     const val ACTION_DOWNLOAD_RESET =
         "com.kuromify.kuromix.DOWNLOAD_RESET"
 
-    /*
-     * Stable request code for the media toggle.
-     *
-     * DO NOT change this to "play" / "pause".
-     */
     private const val MEDIA_TOGGLE_REQUEST_CODE = 7100
 
-    /*
-     * Base request code for the Close PendingIntent.
-     *
-     * Each notification ID XORs into this to produce a unique
-     * request code, so HyperOS cannot reuse the live island's
-     * cached Close PendingIntent for the download island.
-     */
     private const val CLOSE_REQUEST_CODE_BASE = 0x4B55524F
 
-    /*
-     * Last package actually displayed on HyperIsland.
-     *
-     * This prevents a second media notification/session from
-     * stealing the Play/Pause operation.
-     */
     @Volatile
     private var displayedMediaPackage: String? = null
 
-    /*
-     * Small click debounce.
-     *
-     * Some HyperOS builds can deliver a Focus action more than once
-     * during a transition.
-     */
     @Volatile
     private var lastMediaToggleMs = 0L
 
     private const val MEDIA_TOGGLE_DEBOUNCE_MS = 350L
 
-    // ============================================================
-    // PREFERENCES
-    // ============================================================
-
-    @Suppress("DEPRECATION")
-    private fun hyperIslandPreferences(
-        context: Context
-    ): SharedPreferences {
-        return try {
-            context.getSharedPreferences(
-                PREFS_NAME,
-                Context.MODE_WORLD_READABLE
-            )
-        } catch (_: SecurityException) {
-            context.getSharedPreferences(
-                PREFS_NAME,
-                Context.MODE_PRIVATE
-            )
-        }
     }
-
-    // ============================================================
-    // LIVE ENGINE
-    // ============================================================
 
     private val mainHandler =
         android.os.Handler(
@@ -216,9 +132,6 @@ object SuperIslandManager {
     private var lastTxBytes = -1L
     private var lastNetworkSampleMs = 0L
 
-    /*
-     * Thermal state
-     */
     private var lastTemperatureC = Float.NaN
     private var lastThermalStatus =
         PowerManager.THERMAL_STATUS_NONE
@@ -232,10 +145,6 @@ object SuperIslandManager {
         TEMP
     }
 
-    // ============================================================
-    // FOCUS ACTION MODEL
-    // ============================================================
-
     private data class FocusAction(
         val key: String,
         val title: String,
@@ -245,10 +154,6 @@ object SuperIslandManager {
 
     private var pendingMediaActions =
         mutableListOf<FocusAction>()
-
-    // ============================================================
-    // ICONS
-    // ============================================================
 
     private fun mediaIcon(
         key: String
@@ -275,10 +180,6 @@ object SuperIslandManager {
     private fun closeIcon(): Int {
         return android.R.drawable.ic_menu_close_clear_cancel
     }
-
-    // ============================================================
-    // SUPPORT
-    // ============================================================
 
     fun getFocusProtocolVersion(
         context: Context
@@ -396,51 +297,46 @@ object SuperIslandManager {
         }
     }
 
-    // ============================================================
-    // STATE
-    // ============================================================
-
     fun isHyperIslandHookEnabled(
         context: Context
     ): Boolean {
-        return hyperIslandPreferences(context)
-            .getBoolean(
-                PREF_HYPERISLAND_HOOK,
-                false
-            )
+        return try {
+            Settings.Global.getInt(
+                context.contentResolver,
+                HYPERISLAND_SETTING,
+                0
+            ) == 1
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     fun setHyperIslandHookEnabled(
         context: Context,
         enabled: Boolean
     ) {
+        val value =
+            if (enabled) 1 else 0
 
-        hyperIslandPreferences(context)
-            .edit()
-            .putBoolean(
-                PREF_HYPERISLAND_HOOK,
-                enabled
-            )
-            .commit()
+        val result =
+            Shell.cmd(
+                "settings put global " +
+                    "$HYPERISLAND_SETTING $value"
+            ).exec()
 
         Log.d(
             TAG,
-            "HyperIsland enabled = $enabled"
+            "HyperIsland hook setting = " +
+                "$enabled, success=${result.isSuccess}"
         )
 
         if (!enabled) {
-
             stopLiveUpdates(context)
             stopDownloadTest(context)
             cancelTestIsland(context)
-
             displayedMediaPackage = null
         }
     }
-
-    // ============================================================
-    // CHANNEL
-    // ============================================================
 
     private fun createNotificationChannel(
         context: Context
@@ -477,10 +373,6 @@ object SuperIslandManager {
 
         manager.createNotificationChannel(channel)
     }
-
-    // ============================================================
-    // LIVE CONTROL
-    // ============================================================
 
     fun isLiveUpdatesRunning(): Boolean {
         return liveRunning
@@ -612,13 +504,6 @@ object SuperIslandManager {
             "speed" ->
                 LiveMode.NETWORK
 
-            /*
-             * Temperature mode.
-             *
-             * "fps", "game" and "gaming" are kept as aliases so
-             * existing callers that still pass the old strings
-             * keep working.
-             */
             "temp",
             "temperature",
             "thermal",
@@ -704,10 +589,6 @@ object SuperIslandManager {
 
         batteryReceiver = null
     }
-
-    // ============================================================
-    // CHARGING
-    // ============================================================
 
     fun startChargingUpdates(
         context: Context
@@ -915,10 +796,6 @@ object SuperIslandManager {
         }
     }
 
-    // ============================================================
-    // MEDIA
-    // ============================================================
-
     fun startMediaUpdates(
         context: Context
     ) {
@@ -993,10 +870,6 @@ object SuperIslandManager {
             return
         }
 
-        /*
-         * Remember exactly which player generated the current
-         * HyperIsland.
-         */
         displayedMediaPackage =
             media.packageName
 
@@ -1050,9 +923,6 @@ object SuperIslandManager {
                             "$positionText / $durationText"
             )
 
-        /*
-         * PREVIOUS
-         */
         addMediaAction(
             context = context,
             key = "previous",
@@ -1060,12 +930,6 @@ object SuperIslandManager {
             media = media
         )
 
-        /*
-         * PLAY / PAUSE
-         *
-         * The visual icon changes, but the actual HyperIsland
-         * action remains "media_toggle".
-         */
         val playbackKey =
             if (media.playing) {
                 "pause"
@@ -1085,9 +949,6 @@ object SuperIslandManager {
             media = media
         )
 
-        /*
-         * NEXT
-         */
         addMediaAction(
             context = context,
             key = "next",
@@ -1114,12 +975,6 @@ object SuperIslandManager {
 
         try {
 
-            /*
-             * ====================================================
-             * STABLE PLAY/PAUSE TOGGLE
-             * ====================================================
-             */
-
             if (
                 key == "play" ||
                 key == "pause"
@@ -1144,13 +999,6 @@ object SuperIslandManager {
                         )
                     }
 
-                /*
-                 * SAME request code every time.
-                 *
-                 * SAME action every time.
-                 *
-                 * SAME Focus key every time.
-                 */
                 val togglePendingIntent =
                     PendingIntent.getBroadcast(
                         context,
@@ -1181,12 +1029,6 @@ object SuperIslandManager {
                 return
             }
 
-            /*
-             * ====================================================
-             * PREVIOUS / NEXT
-             * ====================================================
-             */
-
             val originalAction =
                 media.actions.firstOrNull {
                     it.key == key
@@ -1214,9 +1056,6 @@ object SuperIslandManager {
                 return
             }
 
-            /*
-             * Fallback receiver.
-             */
             val action =
                 when (key) {
 
@@ -1287,18 +1126,6 @@ object SuperIslandManager {
         }
     }
 
-    /*
-     * ============================================================
-     * MEDIA TOGGLE
-     * ============================================================
-     *
-     * This is the actual Play/Pause implementation.
-     *
-     * The receiver does NOT tell us whether to play or pause.
-     *
-     * We inspect the MediaController at click time.
-     */
-
     fun performMediaToggle(): Boolean {
         return performMediaToggle(
             displayedMediaPackage
@@ -1312,9 +1139,6 @@ object SuperIslandManager {
         val now =
             SystemClock.elapsedRealtime()
 
-        /*
-         * Prevent accidental double delivery.
-         */
         if (
             now - lastMediaToggleMs <
             MEDIA_TOGGLE_DEBOUNCE_MS
@@ -1342,11 +1166,6 @@ object SuperIslandManager {
                     return false
                 }
 
-        /*
-         * First attempt:
-         *
-         * Use the exact package currently shown on HyperIsland.
-         */
         var snapshot =
             if (
                 !preferredPackage.isNullOrBlank()
@@ -1359,11 +1178,6 @@ object SuperIslandManager {
                 null
             }
 
-        /*
-         * Fallback:
-         *
-         * If that package disappeared, find another active player.
-         */
         if (snapshot == null) {
 
             snapshot =
@@ -1385,12 +1199,6 @@ object SuperIslandManager {
 
         if (controller == null) {
 
-            /*
-             * No MediaController.
-             *
-             * Use the original notification's Play/Pause
-             * PendingIntent as a last-resort fallback.
-             */
             val fallbackKey =
                 if (snapshot.playing) {
                     "pause"
@@ -1477,9 +1285,6 @@ object SuperIslandManager {
 
             when (playbackState) {
 
-                /*
-                 * Definitely playing.
-                 */
                 android.media.session
                     .PlaybackState
                     .STATE_PLAYING -> {
@@ -1493,15 +1298,6 @@ object SuperIslandManager {
                         .pause()
                 }
 
-                /*
-                 * BUFFERING is special.
-                 *
-                 * A lot of media players use BUFFERING while
-                 * the current item is still effectively active.
-                 *
-                 * If PAUSE is supported, pause.
-                 * Otherwise play.
-                 */
                 android.media.session
                     .PlaybackState
                     .STATE_BUFFERING -> {
@@ -1533,9 +1329,6 @@ object SuperIslandManager {
                     }
                 }
 
-                /*
-                 * Definitely paused/stopped.
-                 */
                 android.media.session
                     .PlaybackState
                     .STATE_PAUSED,
@@ -1553,11 +1346,6 @@ object SuperIslandManager {
                         .play()
                 }
 
-                /*
-                 * NONE is ambiguous.
-                 *
-                 * Prefer PLAY unless only PAUSE is advertised.
-                 */
                 android.media.session
                     .PlaybackState
                     .STATE_NONE -> {
@@ -1593,11 +1381,6 @@ object SuperIslandManager {
                     }
                 }
 
-                /*
-                 * ERROR:
-                 *
-                 * Attempt PLAY to recover the session.
-                 */
                 android.media.session
                     .PlaybackState
                     .STATE_ERROR -> {
@@ -1611,15 +1394,8 @@ object SuperIslandManager {
                         .play()
                 }
 
-                /*
-                 * CONNECTING and all unknown states.
-                 */
                 else -> {
 
-                    /*
-                     * If PAUSE is explicitly supported and PLAY
-                     * is not, the player is likely active.
-                     */
                     val canPause =
                         actions and
                                 android.media.session
@@ -1660,9 +1436,6 @@ object SuperIslandManager {
                 }
             }
 
-            /*
-             * Update the remembered package.
-             */
             displayedMediaPackage =
                 snapshot.packageName
 
@@ -1679,12 +1452,6 @@ object SuperIslandManager {
             false
         }
     }
-
-    /*
-     * ============================================================
-     * MEDIA ACTION
-     * ============================================================
-     */
 
     private fun refreshMediaIslandDelayed(
         context: Context,
@@ -1847,10 +1614,6 @@ object SuperIslandManager {
         )
     }
 
-    // ============================================================
-    // CLOCK
-    // ============================================================
-
     fun startClockUpdates(
         context: Context
     ) {
@@ -1930,10 +1693,6 @@ object SuperIslandManager {
             "clock_live"
         )
     }
-
-    // ============================================================
-    // TIMER
-    // ============================================================
 
     private const val TIMER_DURATION_MS =
         5L * 60L * 1000L
@@ -2233,10 +1992,6 @@ object SuperIslandManager {
         }
     }
 
-    // ============================================================
-    // NETWORK
-    // ============================================================
-
     fun startNetworkUpdates(
         context: Context
     ) {
@@ -2446,33 +2201,6 @@ object SuperIslandManager {
         }
     }
 
-    // ============================================================
-    // TEMPERATURE
-    // ============================================================
-
-    /*
- * Reads the phone's current temperature in degrees Celsius.
- *
- * Strategy:
- *
- *  1. Walk /sys/class/thermal/thermal_zone* and classify
- *     each zone as SOC, BATTERY, or OTHER.
- *
- *  2. For each zone, normalise the raw value to Celsius,
- *     which includes unit detection:
- *       - milli-Celsius    (42000 -> 42.0)
- *       - centi-Celsius    (4200  -> 42.0)
- *       - tenths           (420   -> 42.0)
- *       - Fahrenheit       (95    -> 35.0)
- *       - Celsius          (42    -> 42.0)
- *
- *  3. Pick the hottest SOC zone. If none exists, fall back
- *     to the hottest OTHER zone. Battery zones are only
- *     used as a last resort.
- *
- *  4. If nothing usable is found, fall back to the coarse
- *     PowerManager thermal status.
- */
     private fun readPhoneTemperature(
         context: Context
     ): Float {
@@ -2545,12 +2273,6 @@ object SuperIslandManager {
                                 typeName.contains("skin") ||
                                 typeName.contains("quiet")
 
-                    /*
-                     * Detect Fahrenheit for battery/skin zones
-                     * BEFORE normalising. A battery/skin reading
-                     * of 90..110 is definitely Fahrenheit, because
-                     * no phone chassis sits at 95 °C.
-                     */
                     val celsius =
                         if (
                             (isBattery || typeName.contains("pa")) &&
@@ -2592,11 +2314,6 @@ object SuperIslandManager {
                     )
                 }
 
-                /*
-                 * Prefer SOC. Only fall back to OTHER, then
-                 * BATTERY. Never let a battery zone win over a
-                 * valid SOC zone.
-                 */
                 when {
 
                     !bestSocC.isNaN() ->
@@ -2615,9 +2332,6 @@ object SuperIslandManager {
             Log.w(TAG, "Unable to read sysfs thermal zones", e)
         }
 
-        /*
-         * Coarse PowerManager fallback.
-         */
         try {
 
             val pm = context.getSystemService(PowerManager::class.java)
@@ -2648,24 +2362,6 @@ object SuperIslandManager {
         return Float.NaN
     }
 
-    /*
-     * Converts a raw sysfs temperature value to Celsius.
-     *
-     * Unit detection is purely by magnitude, and the caller is
-     * responsible for handling Fahrenheit battery zones before
-     * calling this.
-     *
-     *   >= 100_000 -> milli-Kelvin   (e.g. 315_000 = 42 °C)
-     *   >= 10_000  -> milli-Celsius  (e.g. 42_000  = 42 °C)
-     *   >= 1_000   -> centi-Celsius  (e.g. 4_200   = 42 °C)
-     *   >= 200     -> tenths         (e.g. 420     = 42 °C)
-     *   >= 90      -> Fahrenheit     (e.g. 95      = 35 °C)
-     *   else       -> Celsius
-     *
-     * Values that end up outside -20 … 85 °C are rejected, so a
-     * stuck sensor or a Fahrenheit value that snuck past the
-     * caller's battery check can't produce a bogus reading.
-     */
     private fun normaliseToCelsius(
         raw: Float
     ): Float {
@@ -2764,10 +2460,6 @@ object SuperIslandManager {
 
                     temperatureRunnable = this
 
-                    /*
-                     * Thermal sensors change slowly, so 2s is
-                     * plenty and saves battery.
-                     */
                     mainHandler.postDelayed(
                         this,
                         2000L
@@ -2791,9 +2483,6 @@ object SuperIslandManager {
             lastTemperatureC = tempC
         }
 
-        /*
-         * Re-read thermal status for the subtitle line.
-         */
         try {
 
             val pm =
@@ -2835,10 +2524,6 @@ object SuperIslandManager {
             "temperature_live"
         )
     }
-
-    // ============================================================
-    // COMMON HYPERISLAND BUILDER
-    // ============================================================
 
     private fun buildLiveBuilder(
         context: Context,
@@ -2906,10 +2591,6 @@ object SuperIslandManager {
             .setShowNotification(true)
     }
 
-    // ============================================================
-    // SHOW LIVE ISLAND
-    // ============================================================
-
     private fun showLiveIsland(
         context: Context,
         title: String,
@@ -2958,10 +2639,6 @@ object SuperIslandManager {
             )
         }
     }
-
-    // ============================================================
-    // NOTIFICATION
-    // ============================================================
 
     private fun notifyHyperIsland(
         context: Context,
@@ -3018,9 +2695,6 @@ object SuperIslandManager {
                         builder.buildResourceBundle()
                     )
 
-            /*
-             * Normal Android notification actions.
-             */
             if (
                 (
                         notificationId ==
@@ -3070,9 +2744,6 @@ object SuperIslandManager {
             val notification =
                 notificationBuilder.build()
 
-            /*
-             * Register Focus actions.
-             */
             if (
                 (
                         notificationId ==
@@ -3120,19 +2791,6 @@ object SuperIslandManager {
                 )
             }
 
-            /*
-             * Close action.
-             *
-             * Registered for BOTH the live notification and the
-             * download notification. Earlier versions only
-             * allowed LIVE_NOTIFICATION_ID, which is why the
-             * download Close button silently did nothing.
-             *
-             * The PendingIntent now uses a per-notification
-             * request code (CLOSE_REQUEST_CODE_BASE xor
-             * notificationId) so HyperOS cannot cache the live
-             * island's Close PI and reuse it for download.
-             */
             if (
                 (
                         notificationId ==
@@ -3201,10 +2859,6 @@ object SuperIslandManager {
         }
     }
 
-    // ============================================================
-    // FOCUS JSON
-    // ============================================================
-
     private fun addFocusActionsToJson(
         context: Context,
         json: String,
@@ -3223,23 +2877,6 @@ object SuperIslandManager {
                 )
                     ?: return json
 
-            /*
-             * ====================================================
-             * MEDIA BOTTOM MODE
-             * ====================================================
-             *
-             * Media is the only caller that sets
-             * includeClose == false while still passing focus
-             * actions. In that case, we move EVERY media button
-             * (previous, play/pause, next) into the bottom
-             * textButton slot, and leave the top "actions" row
-             * empty.
-             *
-             * This gives a single horizontal control strip at
-             * the bottom of the island, replacing the close
-             * button entirely.
-             */
-
             val isMediaBottomMode =
                 !includeClose &&
                         actions.any {
@@ -3248,11 +2885,6 @@ object SuperIslandManager {
 
             if (isMediaBottomMode) {
 
-                /*
-                 * Re-order so the visual layout is:
-                 *
-                 *     [Previous] [Play/Pause] [Next]
-                 */
                 val orderedKeys =
                     listOf(
                         "previous",
@@ -3323,11 +2955,6 @@ object SuperIslandManager {
                     )
                 }
 
-                /*
-                 * Explicitly clear the top action row so no
-                 * buttons appear on the right side of the
-                 * island.
-                 */
                 paramV2.remove("actions")
 
                 Log.d(
@@ -3338,12 +2965,6 @@ object SuperIslandManager {
 
                 return root.toString()
             }
-
-            /*
-             * ====================================================
-             * NON-MEDIA MODE (legacy behaviour)
-             * ====================================================
-             */
 
             if (actions.isNotEmpty()) {
 
@@ -3449,14 +3070,6 @@ object SuperIslandManager {
         }
     }
 
-    /*
-     * Rebuilds the Intent URI for a media FocusAction so it can
-     * be embedded in the bottom textButton JSON.
-     *
-     * PendingIntent does not expose its wrapped Intent, so we
-     * reconstruct the equivalent Intent from the action key and
-     * the currently displayed media package.
-     */
     private fun createMediaIntentForJson(
         context: Context,
         action: FocusAction
@@ -3554,16 +3167,6 @@ object SuperIslandManager {
         ).toString()
     }
 
-    /*
-     * Creates the Close PendingIntent.
-     *
-     * The request code is XORed with the notification ID so
-     * the live island and the download island get genuinely
-     * different PendingIntents. Without this, HyperOS caches
-     * the first Close PI it ever saw and reuses it for every
-     * later notification in the same slot, which is why the
-     * download Close button used to do nothing.
-     */
     private fun createClosePendingIntent(
         context: Context,
         notificationId: Int
@@ -3578,12 +3181,6 @@ object SuperIslandManager {
                 action =
                     ACTION_CLOSE_LIVE
 
-                /*
-                 * Tell the receiver which notification the
-                 * close belongs to. The current receiver
-                 * ignores this extra, but it is useful for
-                 * future per-notification teardown.
-                 */
                 putExtra(
                     "notificationId",
                     notificationId
@@ -3638,10 +3235,6 @@ object SuperIslandManager {
         )
     }
 
-    // ============================================================
-    // COMPATIBILITY API
-    // ============================================================
-
     fun showChargingTest(
         context: Context,
         battery: Int = 0,
@@ -3694,12 +3287,6 @@ object SuperIslandManager {
         )
     }
 
-    /*
-     * showGameTest now routes to temperature mode.
-     *
-     * The old signature is preserved so existing callers keep
-     * compiling; the fps/temperature params are ignored.
-     */
     fun showGameTest(
         context: Context,
         fps: Int = 0,
@@ -3711,10 +3298,6 @@ object SuperIslandManager {
             "temperature"
         )
     }
-
-    // ============================================================
-    // MIRROR NOTIFICATION
-    // ============================================================
 
     fun showMirrorNotification(
         context: Context,
@@ -3822,10 +3405,6 @@ object SuperIslandManager {
         }
     }
 
-    // ============================================================
-    // TEST / CANCEL
-    // ============================================================
-
     fun showTestIsland(
         context: Context,
         title: String = "KuroMix",
@@ -3873,10 +3452,6 @@ object SuperIslandManager {
             )
         }
     }
-
-    // ============================================================
-    // DOWNLOAD
-    // ============================================================
 
     @Volatile
     private var downloadTestRunning = false
@@ -4311,10 +3886,6 @@ object SuperIslandManager {
         }
     }
 
-    // ============================================================
-    // FOCUS ACTION COMPATIBILITY
-    // ============================================================
-
     fun addFocusAction(
         context: Context,
         builder: NotificationCompat.Builder,
@@ -4394,21 +3965,6 @@ object SuperIslandManager {
     }
 }
 
-
-/*
- * ================================================================
- * MEDIA SESSION LISTENER
- * ================================================================
- *
- * NotificationListener-backed media detector.
- *
- * MediaController is preferred because it gives us the actual
- * PlaybackState instead of trusting the notification button title.
- *
- * Notification PendingIntents remain available as fallbacks for
- * players that expose media controls but don't provide a usable
- * MediaController.
- */
 class MediaSessionListenerService :
     android.service.notification.NotificationListenerService() {
 
@@ -4554,10 +4110,6 @@ class MediaSessionListenerService :
         }
     }
 
-    // ============================================================
-    // MEDIA SESSION TOKEN
-    // ============================================================
-
     private fun getMediaSessionToken(
         notification: Notification
     ): MediaSession.Token? {
@@ -4594,10 +4146,6 @@ class MediaSessionListenerService :
             null
         }
     }
-
-    // ============================================================
-    // MEDIA ACTION EXTRACTION
-    // ============================================================
 
     private fun extractMediaActions(
         notification: Notification
@@ -4703,10 +4251,6 @@ class MediaSessionListenerService :
         return result
     }
 
-    // ============================================================
-    // FIND MEDIA SNAPSHOT
-    // ============================================================
-
     fun findBestMediaSnapshot():
             MediaSnapshot? {
 
@@ -4715,13 +4259,6 @@ class MediaSessionListenerService :
         )
     }
 
-    /*
-     * preferredPackage is important.
-     *
-     * When HyperIsland currently displays Spotify, for example,
-     * we should continue controlling Spotify even if YouTube Music
-     * or another media notification is also present.
-     */
     fun findBestMediaSnapshot(
         preferredPackage: String?
     ): MediaSnapshot? {
@@ -4788,12 +4325,6 @@ class MediaSessionListenerService :
                 continue
             }
 
-            /*
-             * ----------------------------------------------------
-             * CONTROLLER
-             * ----------------------------------------------------
-             */
-
             val controller =
                 if (token != null) {
 
@@ -4820,12 +4351,6 @@ class MediaSessionListenerService :
                     null
                 }
 
-            /*
-             * Ignore a broken controller belonging to a package
-             * that isn't actually the notification package.
-             *
-             * This helps avoid mismatched session notifications.
-             */
             if (
                 controller != null &&
                 controller.packageName !=
@@ -4845,12 +4370,6 @@ class MediaSessionListenerService :
 
             val state =
                 controller?.playbackState
-
-            /*
-             * ----------------------------------------------------
-             * METADATA
-             * ----------------------------------------------------
-             */
 
             val title =
                 metadata?.getString(
@@ -4891,12 +4410,6 @@ class MediaSessionListenerService :
                 state?.position
                     ?.coerceAtLeast(0L)
                     ?: 0L
-
-            /*
-             * ----------------------------------------------------
-             * PLAYBACK STATE
-             * ----------------------------------------------------
-             */
 
             val playbackState =
                 state?.state
@@ -4952,12 +4465,6 @@ class MediaSessionListenerService :
                     else ->
                         "UNKNOWN"
                 }
-
-            /*
-             * ----------------------------------------------------
-             * APP NAME
-             * ----------------------------------------------------
-             */
 
             val appName =
                 try {
@@ -5020,12 +4527,6 @@ class MediaSessionListenerService :
                         "actions=${snapshot.actions.size}"
             )
 
-            /*
-             * ----------------------------------------------------
-             * PREFERRED PACKAGE
-             * ----------------------------------------------------
-             */
-
             if (isPreferred) {
 
                 if (playing) {
@@ -5057,12 +4558,6 @@ class MediaSessionListenerService :
                 }
             }
 
-            /*
-             * ----------------------------------------------------
-             * GENERAL CANDIDATES
-             * ----------------------------------------------------
-             */
-
             if (playing) {
 
                 if (
@@ -5092,12 +4587,6 @@ class MediaSessionListenerService :
             }
         }
 
-        /*
-         * Preferred package ALWAYS wins.
-         *
-         * Only if it no longer exists do we fall back to the
-         * normal PLAYING -> PAUSED -> UNKNOWN selection.
-         */
         return bestPreferredPlaying
             ?: bestPreferredPaused
             ?: bestPreferredUnknown
@@ -5105,10 +4594,6 @@ class MediaSessionListenerService :
             ?: bestPaused
             ?: bestUnknown
     }
-
-    // ============================================================
-    // MEDIA CONTROLLER
-    // ============================================================
 
     fun findBestMediaController():
             MediaController? {
@@ -5126,10 +4611,6 @@ class MediaSessionListenerService :
         )?.controller
     }
 
-    // ============================================================
-    // MEDIA ACTION
-    // ============================================================
-
     fun performCachedMediaAction(
         action: String
     ): Boolean {
@@ -5145,12 +4626,6 @@ class MediaSessionListenerService :
         preferredPackage: String?
     ): Boolean {
 
-        /*
-         * Never use notification PendingIntents for Play/Pause
-         * when a MediaController path is available.
-         *
-         * The stable toggle handles those.
-         */
         if (
             action ==
             SuperIslandManager.ACTION_MEDIA_PLAY ||
@@ -5223,10 +4698,6 @@ class MediaSessionListenerService :
                 action
         }
     }
-
-    // ============================================================
-    // REFRESH
-    // ============================================================
 
     private fun notifyMediaSessionChanged() {
 
