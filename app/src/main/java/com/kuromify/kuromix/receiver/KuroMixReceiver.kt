@@ -15,9 +15,11 @@ import kotlinx.coroutines.launch
 /**
  * Handles KuroMix broadcast actions.
  *
- * Includes:
- * - Rear display / mirror stop
- * - HyperIsland media controls
+ * Currently the only action is [ACTION_STOP_MIRROR], dispatched by the
+ * mirror island's Stop button and by any other surface that wants to tear
+ * down an active mirror session.
+ *
+ * Media control actions were removed along with the Media Player island.
  */
 class KuroMixReceiver : BroadcastReceiver() {
 
@@ -46,58 +48,6 @@ class KuroMixReceiver : BroadcastReceiver() {
 
         when (action) {
 
-            // ====================================================
-            // MEDIA
-            // ====================================================
-
-            SuperIslandManager.ACTION_MEDIA_TOGGLE,
-            SuperIslandManager.ACTION_MEDIA_PLAY,
-            SuperIslandManager.ACTION_MEDIA_PAUSE,
-            SuperIslandManager.ACTION_MEDIA_NEXT,
-            SuperIslandManager.ACTION_MEDIA_PREVIOUS -> {
-
-                /*
-                 * IMPORTANT:
-                 *
-                 * The media PendingIntent created by
-                 * SuperIslandManager contains the package name
-                 * of the media app currently displayed.
-                 *
-                 * We pass that package through to the media
-                 * manager instead of ignoring it.
-                 */
-                val packageName =
-                    intent.getStringExtra(
-                        "packageName"
-                    )
-
-                Log.d(
-                    TAG,
-                    "Media action: $action, " +
-                            "package=$packageName"
-                )
-
-                /*
-                 * Do this synchronously.
-                 *
-                 * BroadcastReceiver.onReceive() is already running
-                 * on the main thread and performMediaAction()
-                 * only dispatches the MediaController command.
-                 */
-                SuperIslandManager
-                    .performMediaAction(
-                        context.applicationContext,
-                        action,
-                        packageName
-                    )
-
-                return
-            }
-
-            // ====================================================
-            // STOP MIRROR
-            // ====================================================
-
             ACTION_STOP_MIRROR -> {
 
                 handleStopMirror(
@@ -106,10 +56,6 @@ class KuroMixReceiver : BroadcastReceiver() {
 
                 return
             }
-
-            // ====================================================
-            // UNKNOWN
-            // ====================================================
 
             else -> {
 
@@ -207,11 +153,28 @@ class KuroMixReceiver : BroadcastReceiver() {
                 )
 
                 /*
-                 * 5. Remove the mirror notification.
+                 * 5. Remove both mirror notification surfaces:
+                 *    the HyperIsland card and the legacy plain
+                 *    notification. Only one of them will have
+                 *    been posted, but cancelling both is harmless.
                  */
+                SuperIslandManager
+                    .cancelMirrorIsland(
+                        context
+                    )
+
                 SuperIslandManager
                     .cancelMirrorNotification(
                         context
+                    )
+
+                /*
+                 * 6. Signal the LSPosed hook to stop keeping
+                 *    the rear display awake.
+                 */
+                RootShell
+                    .setKeepAwakeProp(
+                        false
                     )
 
                 Log.d(
