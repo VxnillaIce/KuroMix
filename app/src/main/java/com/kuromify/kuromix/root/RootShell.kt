@@ -1,6 +1,8 @@
 package com.kuromify.kuromix.root
 
+import android.content.Context
 import com.topjohnwu.superuser.Shell
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Thin wrapper around libsu for the handful of privileged operations KuroMix
@@ -12,21 +14,47 @@ object RootShell {
     data class Result(val ok: Boolean, val out: List<String>, val err: List<String>)
     data class TaskInfo(val taskId: Int, val displayId: Int)
 
+    // ------------------------------------------------------------------
+    // Mi Pay / Google Wallet replacement
+    // ------------------------------------------------------------------
+
+    /**
+     * Property the LSPosed hook reads to decide whether to redirect Mi Pay.
+     * RootShell.setReplaceMipayProp writes this; KuroMixHook reads it.
+     */
+    private const val PROP_REPLACE_MIPAY = "persist.kuromix.replace_mipay"
+
+    /**
+     * MIUI's Settings.System key for the double-click-power gesture.
+     * Confirmed on device: value for Mi Pay is the string "mi_pay".
+     */
+    private const val SETTING_DOUBLE_CLICK_POWER = "double_click_power_key"
+
+    /** MIUI's native value for "Mi Pay" on this device. */
+    private const val MI_PAY_VALUE = "mi_pay"
+
+    private const val PREFS_NAME = "kuromix_prefs"
+    private const val PREF_ORIGINAL_POWER_KEY = "original_double_click_power_key"
+
     private fun run(cmd: String): Result {
         val r = Shell.cmd(cmd).exec()
         return Result(r.isSuccess, r.out, r.err)
     }
 
+    private fun prefs(context: Context) =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
     fun isRootAvailable(): Boolean {
-        // Force get a shell, potentially triggering a prompt if no cached shell exists
         val shell = Shell.getShell()
         val isRoot = shell.isRoot
-        
-        // Final sanity check: try running 'id'
+
         val idResult = Shell.cmd("id").exec()
         val actuallyRoot = idResult.isSuccess && idResult.out.any { it.contains("uid=0") }
-        
-        android.util.Log.d("RootShell", "[KUROMIX_LOG] isRootAvailable check: libsu_isRoot=$isRoot, actuallyRoot=$actuallyRoot")
+
+        android.util.Log.d(
+            "RootShell",
+            "[KUROMIX_LOG] isRootAvailable check: libsu_isRoot=$isRoot, actuallyRoot=$actuallyRoot"
+        )
         return actuallyRoot
     }
 
@@ -42,25 +70,11 @@ object RootShell {
     fun moveTaskToDisplay(taskId: Int, displayId: Int): Result {
         val res = run("service call activity_task 50 i32 $taskId i32 $displayId")
         if (res.ok && (displayId != 0)) {
-            // Wake display if moving to non-zero display
             run("am broadcast -a com.xiaomi.action.REAR_DISPLAY_SWITCH --ez state true")
         }
         return res
     }
 
-    /** Moves an app's current top task onto another display (e.g. the rear/secondary display). */
-    fun moveCurrentTaskToDisplay(displayId: Int): Result {
-        val taskId = getTopTaskId() ?: return Result(ok = false, out = emptyList(), err = listOf("Could identify foreground taskId"))
-        // Transaction code 50 is common for moveTaskToDisplay in HyperOS/Android 16
-        val res = run("service call activity_task 50 i32 $taskId i32 $displayId")
-        if (res.ok) {
-            // Wake display
-            run("am broadcast -a com.xiaomi.action.REAR_DISPLAY_SWITCH --ez state true")
-        }
-        return res
-    }
-
-    /** Parses the current top task ID and its display from activity manager. */
     @Suppress("unused")
     fun getTopTaskInfo(): TaskInfo? {
         val r = run("am stack list")
@@ -83,18 +97,14 @@ object RootShell {
         return null
     }
 
-    /** Parses the current top task ID from activity manager, ignoring specified packages.
-     *  Highly robust implementation designed for HyperOS/Android 13+ multi-display. */
     fun getTopTaskId(ignorePackages: List<String> = emptyList()): Int? {
         android.util.Log.d("RootShell", "[KUROMIX_LOG] getTopTaskId: ignorePackages=$ignorePackages")
-        
-        // Strategy 1: dumpsys activity activities (Most reliable for top resumed)
+
         val r1 = run("dumpsys activity activities")
         if (r1.ok) {
-            // Find the top resumed activity first
             var topResumedPkg: String? = null
             var topResumedTaskId: Int? = null
-            
+
             for (line in r1.out) {
                 if (line.contains("topResumedActivity=")) {
                     val match = Regex("""ActivityRecord\{.* ([\w.]+)/.* t(\d+)\}""").find(line)
@@ -105,22 +115,20 @@ object RootShell {
                     }
                 }
             }
-            
+
             if (topResumedPkg != null && !ignorePackages.contains(topResumedPkg)) {
                 android.util.Log.d("RootShell", "[KUROMIX_LOG] Found via topResumedActivity: $topResumedTaskId ($topResumedPkg)")
                 return topResumedTaskId
             }
 
-            // Strategy 2: Scan all activities on Display 0 in order (Look behind)
             var currentDisplay = -1
             for (line in r1.out) {
                 if (line.contains("Display #")) {
                     val m = Regex("""Display #(\d+)""").find(line)
                     currentDisplay = m?.groupValues?.get(1)?.toInt() ?: -1
                 }
-                
+
                 if (currentDisplay == 0) {
-                    // Extract activity record. Note: we use [^/ ]+ to handle hyphens in package names.
                     val arMatch = Regex("""\* ActivityRecord\{.* ([^/ ]+)/.* t(\d+)\}""").find(line)
                     if (arMatch != null) {
                         val pkg = arMatch.groupValues[1]
@@ -134,7 +142,6 @@ object RootShell {
             }
         }
 
-        // Strategy 3: am stack list fallback
         val r2 = run("am stack list")
         if (r2.ok) {
             var currentDisplayId = -1
@@ -159,23 +166,18 @@ object RootShell {
         return null
     }
 
-    /** Simpler, more reliable path for specific apps: relaunch the app's launcher activity directly onto a display id.
-     *  If the app is already running, we try to move its task instead of starting a new one. */
     @Suppress("unused")
     fun launchOnDisplay(packageName: String, componentName: String, displayId: Int): Result {
         val taskId = getTaskIdForPackage(packageName)
         return if (taskId != null) {
-            // App is running, move its task
             val res = run("service call activity_task 50 i32 $taskId i32 $displayId")
             if (res.ok) run("am broadcast -a com.xiaomi.action.REAR_DISPLAY_SWITCH --ez state true")
             res
         } else {
-            // App not running, start it fresh on the target display
             run("am start -n $componentName --display $displayId")
         }
     }
 
-    /** Finds the packageName for a specific taskId. */
     fun getPackageNameForTask(taskId: Int): String? {
         val r = run("am stack list")
         if (r.ok) {
@@ -186,7 +188,6 @@ object RootShell {
                 }
             }
         }
-        // Fallback to dumpsys activity tasks
         val r2 = run("dumpsys activity tasks")
         if (r2.ok) {
             for (line in r2.out) {
@@ -199,7 +200,6 @@ object RootShell {
         return null
     }
 
-    /** Finds the taskId for a specific package if it has a visible or background task. */
     fun getTaskIdForPackage(packageName: String): Int? {
         val r = run("am stack list")
         if (r.ok) {
@@ -213,7 +213,6 @@ object RootShell {
         return null
     }
 
-    /** Finds the ID of any visible task currently residing on a specific display. */
     fun getTaskIdOnDisplay(displayId: Int): Int? {
         val r = run("am stack list")
         if (r.ok && r.out.isNotEmpty()) {
@@ -237,7 +236,6 @@ object RootShell {
         return null
     }
 
-    /** Finds the package name of the top visible task on a specific display. */
     fun getTopPackageOnDisplay(displayId: Int): String? {
         val r = run("am stack list")
         if (r.ok && r.out.isNotEmpty()) {
@@ -260,24 +258,21 @@ object RootShell {
         return null
     }
 
-    /** Polls for a taskId for a package until it appears or timeout is reached. */
     @Suppress("unused")
     suspend fun waitForTaskId(packageName: String, timeoutMs: Long = 3000): Int? {
         val startTime = System.currentTimeMillis()
         while (System.currentTimeMillis() - startTime < timeoutMs) {
             val taskId = getTaskIdForPackage(packageName)
             if (taskId != null) return taskId
-            kotlinx.coroutines.delay(200)
+            kotlinx.coroutines.delay(200.milliseconds)
         }
         return null
     }
 
-    /** Pulls the currently focused/top activity's component name via dumpsys. */
     @Suppress("unused")
     fun getTopActivity(): String? {
         val r = run("dumpsys activity activities | grep -m1 'topResumedActivity'")
         val line = r.out.firstOrNull() ?: return null
-        // Example: topResumedActivity=ActivityRecord{... u0 com.foo/.MainActivity t123}
         val regex = Regex("""([\w.]+/[\w.$]+)""")
         return regex.find(line)?.value
     }
@@ -301,18 +296,11 @@ object RootShell {
     fun screenshotDisplay(displayId: Int, outPath: String): Result =
         run("screencap -d $displayId $outPath")
 
-    /** Forces the rear display to wake or stay on. */
-    fun wakeRear(): Result {
-        return run("am broadcast -a com.xiaomi.action.REAR_DISPLAY_SWITCH --ez state true")
-    }
-
-    /** Fetches the marketing name of the device. */
     fun getMarketName(): String {
         val r = Shell.cmd("getprop ro.product.marketname").exec()
         return if (r.isSuccess && r.out.isNotEmpty()) r.out[0] else android.os.Build.MODEL
     }
 
-    /** Fetches the HyperOS version string from system properties. */
     fun getHyperOSVersion(): String {
         val r = Shell.cmd("getprop ro.mi.os.version.incremental").exec()
         if (r.isSuccess && r.out.isNotEmpty()) return r.out[0]
@@ -320,16 +308,13 @@ object RootShell {
         return if (r2.isSuccess && r2.out.isNotEmpty()) r2.out[0] else "Unknown"
     }
 
-    /** Sets the logical area of the display. Useful for avoiding notches/lenses.
-     *  Format: [LEFT,TOP,RIGHT,BOTTOM] */
     fun setDisplayArea(displayId: Int, left: Int, top: Int, right: Int, bottom: Int): Result =
         run("wm folded-area -d $displayId $left,$top,$right,$bottom")
 
-    /** Fetches the size of a specific display. Returns Pair(width, height). */
     fun getDisplaySize(displayId: Int): Pair<Int, Int>? {
         val r = run("wm size -d $displayId")
         if (r.ok && r.out.isNotEmpty()) {
-            val line = r.out.last() // Use last line to handle overrides correctly
+            val line = r.out.last()
             val match = Regex("(\\d+)x(\\d+)").find(line)
             if (match != null) {
                 return Pair(match.groupValues[1].toInt(), match.groupValues[2].toInt())
@@ -338,38 +323,25 @@ object RootShell {
         return null
     }
 
-    /** Applies a horizontal offset to a display while keeping its full bounds valid. */
     fun applyDisplayOffset(displayId: Int, offset: Int): Result {
         if (offset == 0) return resetDisplayArea(displayId)
-        val size = getDisplaySize(displayId) ?: return Result(ok = false, out = emptyList(), err = listOf("Could not determine display size"))
+        val size = getDisplaySize(displayId)
+            ?: return Result(ok = false, out = emptyList(), err = listOf("Could not determine display size"))
         val (width, height) = size
-        // We set the right and bottom bounds to the actual display size to avoid black screen.
-        // Content will be pushed from the left by 'offset'.
         return setDisplayArea(displayId, offset, 0, width, height)
     }
 
-    /** Resets the display area to full screen. */
     fun resetDisplayArea(displayId: Int): Result =
         run("wm folded-area -d $displayId reset")
 
-    /** Sets a system property to signal the LSPosed hook. */
     fun setKeepAwakeProp(enabled: Boolean) {
         val valStr = if (enabled) "1" else "0"
         run("setprop persist.kuromix.keep_awake $valStr")
-        // Also force a refresh of the hook by toggling a non-critical property if needed
-        // but setprop usually triggers a reread if the hook is watching or called per-frame
     }
 
-    /** Sets a system property to signal the LSPosed anti-kill hook. */
     fun setAntiKillProp(enabled: Boolean) {
         val valStr = if (enabled) "1" else "0"
         run("setprop persist.kuromix.anti_kill $valStr")
-    }
-
-    /** Sets a system property to signal the LSPosed Mi Pay replacement hook. */
-    fun setReplaceMipayProp(enabled: Boolean) {
-        val valStr = if (enabled) "1" else "0"
-        run("setprop persist.kuromix.replace_mipay $valStr")
     }
 
     /** Forcibly stops the system's sub-screen launcher to prevent interference. */
@@ -377,21 +349,16 @@ object RootShell {
         return run("am force-stop com.xiaomi.subscreencenter")
     }
 
-    /** Disables the double-tap to sleep/wake on subscreen. */
     fun disableSubScreenDoubleTap(): Result {
         return run("settings put system subscreen_double_tap_wake 0")
     }
 
-    /** Sets the subscreen timeout. 0 usually means never or system default.
-     *  We use a very large value to simulate 'Never'. */
     fun setSubScreenTimeout(seconds: Int): Result {
         val ms = seconds * 1000
         return run("settings put system subscreen_display_time $ms")
     }
 
-    /** Kills a process by package name via root, restarting it (for persistent system processes). */
     fun killProcess(pkg: String): Result {
-        // First try pidof — fast path
         val pidResult = run("pidof $pkg")
         val pid = pidResult.out.firstOrNull()?.trim()?.split(" ")?.firstOrNull()
 
@@ -400,7 +367,6 @@ object RootShell {
                 "RootShell",
                 "[KUROMIX_LOG] killProcess: pidof found no PID for $pkg, falling back to ps"
             )
-            // Fallback: parse ps -A directly, since pidof can miss on some toybox builds
             val psResult = run("ps -A -o PID,NAME")
             val line = psResult.out.firstOrNull { it.trim().endsWith(pkg) }
             val fallbackPid = line?.trim()?.split(Regex("\\s+"))?.firstOrNull()
@@ -430,5 +396,47 @@ object RootShell {
             "[KUROMIX_LOG] killProcess($pkg) via pidof pid=$pid -> ok=${killRes.ok} err=${killRes.err}"
         )
         return killRes
-        }
     }
+
+    // ------------------------------------------------------------------
+    // Mi Pay -> Google Wallet toggle
+    // ------------------------------------------------------------------
+
+    /**
+     * Enables or disables the Mi Pay -> Google Wallet redirect.
+     *
+     * IMPORTANT: This does NOT touch Settings.System.double_click_power_key.
+     * MIUI keeps its native value ("mi_pay") and launches Mi Pay normally;
+     * KuroMixHook intercepts the resulting activity / power-key event and
+     * redirects to Google Wallet only when this property is "1".
+     *
+     * Because we never write the setting, disabling is instant and there is
+     * no state to restore — the device can never end up stuck on "none".
+     */
+    fun setReplaceMipayProp(enabled: Boolean) {
+        val valStr = if (enabled) "1" else "0"
+        run("setprop $PROP_REPLACE_MIPAY $valStr")
+        android.util.Log.d(
+            "RootShell",
+            "[KUROMIX_LOG] setReplaceMipayProp($enabled) -> $PROP_REPLACE_MIPAY=$valStr"
+        )
+    }
+
+    /**
+     * Recovery helper: forces double_click_power_key back to Mi Pay.
+     * Useful if an older build of KuroMix left the setting on a value MIUI
+     * doesn't recognise (e.g. "none" or "launch_mi_pay").
+     */
+    fun restoreMiPayPowerKey() {
+        run("settings put system $SETTING_DOUBLE_CLICK_POWER $MI_PAY_VALUE")
+        android.util.Log.d("RootShell", "[KUROMIX_LOG] Restored power key to $MI_PAY_VALUE")
+    }
+
+    /** Diagnostic: read the current value. */
+    fun getDoubleClickPowerKey(): String? =
+        run("settings get system $SETTING_DOUBLE_CLICK_POWER")
+            .out
+            .firstOrNull()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && it != "null" }
+}

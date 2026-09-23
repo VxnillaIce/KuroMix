@@ -1,5 +1,7 @@
 package com.kuromify.kuromix.ui
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -68,9 +70,19 @@ import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.interfaces.ExperimentalScrollBarApi
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+import androidx.core.net.toUri
+
+// ── Reference URLs ─────────────────────────────────────────────
+private const val URL_VXNILLA = "https://github.com/VxnillaIce"
+private const val URL_DINOPIG = "https://github.com/dinopig1219"
+private const val URL_YUKONGA = "https://github.com/YuKongA"
+private const val URL_HYPERCEILER = "https://github.com/ReChronoRain/HyperCeiler"
+private const val URL_HYPERISLAND_KIT = "https://github.com/D4vidDf"
+private const val URL_KUROMIX_REPO = "https://github.com/VxnillaIce/KuroMix"
 
 @Composable
 fun AboutScreen(
@@ -110,7 +122,7 @@ fun AboutScreen(
     val blurActive by remember(topBarBackdrop) {
         derivedStateOf {
             topBarBackdrop != null &&
-                scrollProgress >= 0.999f
+                    scrollProgress >= 0.999f
         }
     }
 
@@ -202,64 +214,38 @@ private fun KuroMixAboutContent(
             0,
         )
     }
-    val versionName =
-        packageInfo.versionName.orEmpty()
-    val versionCode =
-        packageInfo.longVersionCode
+    val versionName = packageInfo.versionName.orEmpty()
+    val versionCode = packageInfo.longVersionCode
 
     val appIconBitmap = remember(context) {
         context.packageManager
-            .getApplicationIcon(
-                context.packageName,
-            )
-            .toBitmap(
-                width = 192,
-                height = 192,
-            )
+            .getApplicationIcon(context.packageName)
+            .toBitmap(width = 192, height = 192)
             .asImageBitmap()
     }
 
-    var hyperOSVersion by remember {
-        mutableStateOf("Checking…")
-    }
-    var deviceName by remember {
-        mutableStateOf("Checking…")
-    }
+    var hyperOSVersion by remember { mutableStateOf("Checking…") }
+    var deviceName by remember { mutableStateOf("Checking…") }
 
     LaunchedEffect(Unit) {
-        hyperOSVersion =
-            RootShell.getHyperOSVersion()
-        deviceName =
-            RootShell.getMarketName()
+        hyperOSVersion = RootShell.getHyperOSVersion()
+        deviceName = RootShell.getMarketName()
     }
 
     val density = LocalDensity.current
     val isDark = isSystemInDarkTheme()
-    val backdrop =
-        rememberAboutBackdrop(blurSupported)
+    val backdrop = rememberAboutBackdrop(blurSupported)
 
     val cardBlend = remember(isDark) {
         if (isDark) {
             listOf(
-                BlendColorEntry(
-                    Color(0x4DA9A9A9),
-                    BlurBlendMode.Luminosity,
-                ),
-                BlendColorEntry(
-                    Color(0x1A9C9C9C),
-                    BlurBlendMode.PlusDarker,
-                ),
+                BlendColorEntry(Color(0x4DA9A9A9), BlurBlendMode.Luminosity),
+                BlendColorEntry(Color(0x1A9C9C9C), BlurBlendMode.PlusDarker),
             )
         } else {
             listOf(
-                BlendColorEntry(
-                    Color(0x340034F9),
-                    BlurBlendMode.Overlay,
-                ),
-                BlendColorEntry(
-                    Color(0xB3FFFFFF),
-                    BlurBlendMode.HardLight,
-                ),
+                BlendColorEntry(Color(0x340034F9), BlurBlendMode.Overlay),
+                BlendColorEntry(Color(0xB3FFFFFF), BlurBlendMode.HardLight),
             )
         }
     }
@@ -267,32 +253,18 @@ private fun KuroMixAboutContent(
     val logoBlend = remember(isDark) {
         if (isDark) {
             listOf(
-                BlendColorEntry(
-                    Color(0xE6A1A1A1),
-                    BlurBlendMode.ColorDodge,
-                ),
-                BlendColorEntry(
-                    Color(0x4DE6E6E6),
-                    BlurBlendMode.LinearLight,
-                ),
+                BlendColorEntry(Color(0xE6A1A1A1), BlurBlendMode.ColorDodge),
+                BlendColorEntry(Color(0x4DE6E6E6), BlurBlendMode.LinearLight),
             )
         } else {
             listOf(
-                BlendColorEntry(
-                    Color(0xCC4A4A4A),
-                    BlurBlendMode.ColorBurn,
-                ),
-                BlendColorEntry(
-                    Color(0xFF4F4F4F),
-                    BlurBlendMode.LinearLight,
-                ),
+                BlendColorEntry(Color(0xCC4A4A4A), BlurBlendMode.ColorBurn),
+                BlendColorEntry(Color(0xFF4F4F4F), BlurBlendMode.LinearLight),
             )
         }
     }
 
-    var logoHeightDp by remember {
-        mutableStateOf(0.dp)
-    }
+    var logoHeightDp by remember { mutableStateOf(0.dp) }
 
     BgEffectBackground(
         dynamicBackground = true,
@@ -302,49 +274,32 @@ private fun KuroMixAboutContent(
         } else {
             Modifier
         },
-        alpha = {
-            1f - scrollProgress
-        },
+        alpha = { 1f - scrollProgress },
     ) { }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                top =
-                    padding.calculateTopPadding() +
-                        40.dp,
-            )
+            .padding(top = padding.calculateTopPadding() + 40.dp)
             .onSizeChanged { size ->
                 with(density) {
-                    logoHeightDp =
-                        size.height.toDp()
+                    logoHeightDp = size.height.toDp()
                 }
             },
-        horizontalAlignment =
-            Alignment.CenterHorizontally,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(88.dp)
                 .graphicsLayer {
-                    val iconProgress = (
-                        (scrollProgress - 0.35f) /
-                            0.15f
-                    ).coerceIn(0f, 1f)
-
+                    val iconProgress =
+                        ((scrollProgress - 0.35f) / 0.15f).coerceIn(0f, 1f)
                     clip = true
-                    shape =
-                        RoundedCornerShape(24.dp)
-                    alpha =
-                        1f - iconProgress
-                    scaleX =
-                        1f -
-                            iconProgress * 0.05f
-                    scaleY =
-                        1f -
-                            iconProgress * 0.05f
+                    shape = RoundedCornerShape(24.dp)
+                    alpha = 1f - iconProgress
+                    scaleX = 1f - iconProgress * 0.05f
+                    scaleY = 1f - iconProgress * 0.05f
                 },
         ) {
             Image(
@@ -356,51 +311,27 @@ private fun KuroMixAboutContent(
 
         Text(
             text = "KuroMix",
-            style =
-                MiuixTheme.textStyles.title1,
+            style = MiuixTheme.textStyles.title1,
             fontWeight = FontWeight.Bold,
             fontSize = 35.sp,
             modifier = Modifier
-                .padding(
-                    top = 12.dp,
-                    bottom = 5.dp,
-                )
+                .padding(top = 12.dp, bottom = 5.dp)
                 .graphicsLayer {
-                    val projectNameProgress = (
-                        (scrollProgress - 0.20f) /
-                            0.15f
-                    ).coerceIn(0f, 1f)
-
-                    alpha =
-                        1f -
-                            projectNameProgress
-                    scaleX =
-                        1f -
-                            projectNameProgress *
-                            0.05f
-                    scaleY =
-                        1f -
-                            projectNameProgress *
-                            0.05f
+                    val projectNameProgress =
+                        ((scrollProgress - 0.20f) / 0.15f).coerceIn(0f, 1f)
+                    alpha = 1f - projectNameProgress
+                    scaleX = 1f - projectNameProgress * 0.05f
+                    scaleY = 1f - projectNameProgress * 0.05f
                 }
                 .then(
                     if (backdrop != null) {
                         Modifier.textureBlur(
                             backdrop = backdrop,
-                            shape =
-                                RoundedCornerShape(
-                                    16.dp,
-                                ),
+                            shape = RoundedCornerShape(16.dp),
                             blurRadius = 150f,
-                            noiseCoefficient =
-                                BlurDefaults
-                                    .NoiseCoefficient,
-                            colors = BlurColors(
-                                blendColors =
-                                    logoBlend,
-                            ),
-                            contentBlendMode =
-                                BlendMode.DstIn,
+                            noiseCoefficient = BlurDefaults.NoiseCoefficient,
+                            colors = BlurColors(blendColors = logoBlend),
+                            contentBlendMode = BlendMode.DstIn,
                         )
                     } else {
                         Modifier
@@ -412,87 +343,53 @@ private fun KuroMixAboutContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .graphicsLayer {
-                    val versionProgress = (
-                        (scrollProgress - 0.05f) /
-                            0.15f
-                    ).coerceIn(0f, 1f)
-
-                    alpha =
-                        1f - versionProgress
-                    scaleX =
-                        1f -
-                            versionProgress * 0.05f
-                    scaleY =
-                        1f -
-                            versionProgress * 0.05f
+                    val versionProgress =
+                        ((scrollProgress - 0.05f) / 0.15f).coerceIn(0f, 1f)
+                    alpha = 1f - versionProgress
+                    scaleX = 1f - versionProgress * 0.05f
+                    scaleY = 1f - versionProgress * 0.05f
                 },
-            horizontalAlignment =
-                Alignment.CenterHorizontally,
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text =
-                    "$versionName ($versionCode)",
-                color =
-                    MiuixTheme.colorScheme
-                        .onSurfaceVariantSummary,
+                text = "$versionName ($versionCode)",
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 fontSize = 14.sp,
             )
         }
     }
 
-    Box(
-        modifier = Modifier.fillMaxSize(),
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = lazyListState,
             modifier = Modifier
                 .fillMaxSize()
                 .scrollEndHaptic()
                 .overScrollVertical()
-                .nestedScroll(
-                    scrollBehavior
-                        .nestedScrollConnection,
-                ),
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentPadding = PaddingValues(
-                top =
-                    padding.calculateTopPadding(),
-                bottom =
-                    bottomPadding + 16.dp,
+                top = padding.calculateTopPadding(),
+                bottom = bottomPadding + 16.dp,
             ),
         ) {
-            item(
-                key = "logoSpacer",
-            ) {
+            item(key = "logoSpacer") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(
-                            logoHeightDp +
-                                52.dp +
-                                40.dp +
-                                82.dp,
-                        )
+                        .height(logoHeightDp + 52.dp + 40.dp + 82.dp)
                         .onSizeChanged { size ->
-                            onLogoSpacerHeightChanged(
-                                size.height,
-                            )
+                            onLogoSpacerHeightChanged(size.height)
                         },
                 )
             }
 
-            item(
-                key = "aboutContent",
-            ) {
+            item(key = "aboutContent") {
                 Column(
                     modifier = Modifier
-                        .fillParentMaxHeight()
-                        .padding(
-                            bottom = 16.dp,
-                        ),
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
                 ) {
-                    SmallTitle(
-                        text = "DEVICE INFO",
-                    )
+                    SmallTitle(text = "DEVICE INFO")
 
                     PigLauncherGlassCard(
                         backdrop = backdrop,
@@ -502,60 +399,63 @@ private fun KuroMixAboutContent(
                             title = "Device Model",
                             summary = deviceName,
                         )
-
                         BasicComponent(
                             title = "System Version",
-                            summary =
-                                "HyperOS $hyperOSVersion",
+                            summary = "HyperOS $hyperOSVersion",
                         )
-
                         BasicComponent(
-                            title =
-                                "Android Version",
-                            summary =
-                                Build.VERSION.RELEASE,
+                            title = "Android Version",
+                            summary = Build.VERSION.RELEASE,
                         )
                     }
 
-                    SmallTitle(
-                        text = "ABOUT APP",
-                    )
+                    SmallTitle(text = "ABOUT APP")
 
                     PigLauncherGlassCard(
                         backdrop = backdrop,
                         cardBlend = cardBlend,
                     ) {
-                        BasicComponent(
+                        ArrowPreference(
                             title = "Developer",
-                            summary = "Vxnilla Ice",
+                            summary = "@VxnillaIce",
+                            onClick = { openUrl(context, URL_VXNILLA) },
+                        )
+                        ArrowPreference(
+                            title = "Contributors",
+                            summary = "@dinopig1219",
+                            onClick = { openUrl(context, URL_DINOPIG) },
+                        )
+                        ArrowPreference(
+                            title = "GitHub",
+                            summary = "KuroMix Official GitHub page",
+                            onClick = { openUrl(context, URL_KUROMIX_REPO) },
                         )
                     }
 
-                    SmallTitle(
-                        text = "REFERENCES",
-                    )
+                    SmallTitle(text = "REFERENCES")
 
                     PigLauncherGlassCard(
                         backdrop = backdrop,
                         cardBlend = cardBlend,
                     ) {
-                        BasicComponent(
+                        ArrowPreference(
                             title = "UI Toolkit",
-                            summary =
-                                "MIUIX Library by YukongA",
+                            summary = "MIUIX Library by YukongA",
+                            onClick = { openUrl(context, URL_YUKONGA) },
                         )
-
-                        BasicComponent(
-                            title =
-                                "Visual Effects",
-                            summary =
-                                "HyperCeiler Module",
+                        ArrowPreference(
+                            title = "Visual Effects",
+                            summary = "HyperCeiler Module",
+                            onClick = { openUrl(context, URL_HYPERCEILER) },
                         )
-
+                        ArrowPreference(
+                            title = "HyperIsland",
+                            summary = "HyperIsland-Kit by D4vidDf",
+                            onClick = { openUrl(context, URL_HYPERISLAND_KIT) },
+                        )
                         BasicComponent(
                             title = "Inspiration",
-                            summary =
-                                "ZHITool and REAREye Github",
+                            summary = "ZHITool and REAREye Github",
                         )
                     }
                 }
@@ -563,17 +463,20 @@ private fun KuroMixAboutContent(
         }
 
         VerticalScrollBar(
-            adapter =
-                rememberScrollBarAdapter(
-                    lazyListState,
-                ),
+            adapter = rememberScrollBarAdapter(lazyListState),
             modifier = Modifier
-                .align(
-                    Alignment.CenterEnd,
-                )
+                .align(Alignment.CenterEnd)
                 .fillMaxHeight(),
         )
     }
+}
+
+// ── URL helper ─────────────────────────────────────────────────
+private fun openUrl(context: android.content.Context, url: String) {
+    val intent = Intent(Intent.ACTION_VIEW, url.toUri()).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching { context.startActivity(intent) }
 }
 
 @Composable
@@ -585,46 +488,29 @@ private fun PigLauncherGlassCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                horizontal = 12.dp,
-            )
-            .padding(
-                bottom = 12.dp,
-            )
+            .padding(horizontal = 12.dp)
+            .padding(bottom = 12.dp)
             .then(
                 if (backdrop != null) {
                     Modifier.textureBlur(
                         backdrop = backdrop,
-                        shape =
-                            RoundedCornerShape(
-                                16.dp,
-                            ),
+                        shape = RoundedCornerShape(16.dp),
                         blurRadius = 60f,
-                        noiseCoefficient =
-                            BlurDefaults
-                                .NoiseCoefficient,
-                        colors =
-                            BlurDefaults.blurColors(
-                                blendColors =
-                                    cardBlend,
-                            ),
+                        noiseCoefficient = BlurDefaults.NoiseCoefficient,
+                        colors = BlurDefaults.blurColors(blendColors = cardBlend),
                     )
                 } else {
                     Modifier
                 },
             ),
-        colors =
-            CardDefaults.defaultColors(
-                color =
-                    if (backdrop != null) {
-                        Color.Transparent
-                    } else {
-                        MiuixTheme.colorScheme
-                            .surfaceContainer
-                    },
-                contentColor =
-                    Color.Transparent,
-            ),
+        colors = CardDefaults.defaultColors(
+            color = if (backdrop != null) {
+                Color.Transparent
+            } else {
+                MiuixTheme.colorScheme.surfaceContainer
+            },
+            contentColor = Color.Transparent,
+        ),
         content = content,
     )
 }
@@ -647,18 +533,12 @@ private fun AboutBlurredBar(
 ) {
     Box(
         modifier =
-            if (
-                backdrop != null &&
-                blurEnabled
-            ) {
+            if (backdrop != null && blurEnabled) {
                 Modifier.textureBlur(
                     backdrop = backdrop,
                     shape = RectangleShape,
-                    blurRadius =
-                        BlurDefaults.BlurRadius,
-                    noiseCoefficient =
-                        BlurDefaults
-                            .NoiseCoefficient,
+                    blurRadius = BlurDefaults.BlurRadius,
+                    noiseCoefficient = BlurDefaults.NoiseCoefficient,
                     colors = BlurColors(),
                 )
             } else {

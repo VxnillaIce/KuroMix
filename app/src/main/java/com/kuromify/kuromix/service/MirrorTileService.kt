@@ -18,6 +18,10 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Quick Settings Tile to mirror the current foreground app to the rear display.
+ *
+ * Gated on the "Enable Mirroring" switch in the Rear Screen settings screen.
+ * If the module is off, the tile refuses to act and shows a toast pointing
+ * the user at the app.
  */
 class MirrorTileService : TileService() {
 
@@ -31,15 +35,34 @@ class MirrorTileService : TileService() {
             "com.kuromify.kuromix",
             "com.xiaomi.subscreencenter"
         )
+        private const val TOAST_MODULE_OFF =
+            "Please enable Mirroring and Root Access in the app"
     }
 
     override fun onClick() {
         super.onClick()
         Log.d(TAG, "[KUROMIX_LOG] Mirror tile clicked")
-        
+
         serviceScope.launch {
             val context = applicationContext
             val whitelistManager = WhitelistManager(context)
+
+            // Gate on the master switch
+            val mirrorEnabled =
+                whitelistManager.mirrorModuleEnabledFlow.first()
+
+            if (!mirrorEnabled) {
+                Log.d(TAG, "[KUROMIX_LOG] Mirror module disabled, refusing")
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        context,
+                        TOAST_MODULE_OFF,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                return@launch
+            }
+
             val rearManager = RearDisplayManager(context)
             val displayId = rearManager.primaryRearDisplayId() ?: 1
 
@@ -49,27 +72,31 @@ class MirrorTileService : TileService() {
             if (taskId == null) {
                 Log.d(TAG, "[KUROMIX_LOG] No valid top task found to mirror")
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "No app found to mirror", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        "No app found to mirror",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
                 return@launch
             }
-            
+
             // 2. Identify the package of this task to check whitelist
             val packageName = RootShell.getPackageNameForTask(taskId) ?: ""
             Log.d(TAG, "[KUROMIX_LOG] Package name for task $taskId: $packageName")
-            
+
             if (packageName.isEmpty()) {
                 Log.d(TAG, "[KUROMIX_LOG] Could not resolve package name for task $taskId")
                 return@launch
             }
-            
+
             // 3. Load config for this app
             val config = whitelistManager.getAppConfig(packageName)
             if (!config.enabled) {
                 Log.d(TAG, "[KUROMIX_LOG] App $packageName is not enabled in whitelist")
-                return@launch 
+                return@launch
             }
-            
+
             val globalLensOpt = whitelistManager.lensOptimizationFlow.first()
             val keepAwakeGlobal = whitelistManager.keepAwakeEnabledFlow.first()
             val antiKillGlobal = whitelistManager.antiKillEnabledFlow.first()
@@ -79,10 +106,12 @@ class MirrorTileService : TileService() {
             // 4. Apply settings
             val targetOffset = if (globalLensOpt) config.lensOffset else 0
             val targetDpi = config.dpi
-            
+
             Log.d(TAG, "[KUROMIX_LOG] Applying display settings: displayId=$displayId, offset=$targetOffset, dpi=$targetDpi")
             RootShell.applyDisplayOffset(displayId, targetOffset)
             RootShell.setDisplayDpi(displayId, targetDpi)
+
+            RootShell.setKeepAwakeProp(keepAwakeGlobal)
 
             if (keepAwakeGlobal) {
                 Log.d(TAG, "[KUROMIX_LOG] Setting keep-awake props")
@@ -94,14 +123,14 @@ class MirrorTileService : TileService() {
                 Log.d(TAG, "[KUROMIX_LOG] Suppressing sub-screen launcher")
                 RootShell.suppressSubScreenLauncher()
             }
-            
+
             delay(200.milliseconds) // Synchronization delay
 
             // 5. Migrate task
             Log.d(TAG, "[KUROMIX_LOG] Moving task $taskId to display $displayId")
             val result = RootShell.moveTaskToDisplay(taskId, displayId)
-            
-            // 6. Start Monitor Service (It will handle showing the notification)
+
+            // 6. Start Monitor Service (it will post the mirror island)
             if (result.ok) {
                 val intent = Intent(context, MirrorMonitorService::class.java)
                 context.startService(intent)
@@ -113,7 +142,7 @@ class MirrorTileService : TileService() {
         super.onStartListening()
         val tile = qsTile
         val rearManager = RearDisplayManager(applicationContext)
-        
+
         if (rearManager.isRearDisplayPresent()) {
             tile.state = Tile.STATE_INACTIVE
             tile.subtitle = "Ready to mirror"

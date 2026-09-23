@@ -5,8 +5,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,7 +53,6 @@ fun KuroMixDashboard(
     onNavigateToSettings: () -> Unit,
     onNavigateToMirrorSettings: () -> Unit,
     onNavigateToHyperIsland: () -> Unit,
-    onNavigateToMedia: () -> Unit,
     bottomPadding: Dp = 0.dp
 ) {
     val context = LocalContext.current
@@ -163,9 +160,9 @@ fun KuroMixDashboard(
             }
 
             item {
-                // Each entry here represents a whole app/module with its own settings
-                // screen. Rear Screen Mirroring, HyperIsland, and Media navigate away;
-                // Google Wallet Enable is a single inline toggle with no sub-screen.
+                // Each entry here represents a whole app/module with its own
+                // settings screen. Google Wallet Enable is a single inline
+                // toggle with no sub-screen.
                 Spacer(Modifier.height(16.dp))
                 SmallTitle(text = "MODULES")
                 Card(
@@ -178,13 +175,8 @@ fun KuroMixDashboard(
                     )
                     ArrowPreference(
                         title = "HyperIsland",
-                        summary = "Customize HyperOS Island behavior",
+                        summary = "Charging, Timer, Network, and Temperature live cards",
                         onClick = onNavigateToHyperIsland
-                    )
-                    ArrowPreference(
-                        title = "Media Player",
-                        summary = "Tweak media player behavior and features",
-                        onClick = onNavigateToMedia
                     )
                     SwitchPreference(
                         title = "Google Wallet Enable",
@@ -220,7 +212,7 @@ fun KuroMixDashboard(
                                     RootShell.forceStopPackage(pkg).ok
                                 }
                             }
-                            .all {it}
+                            .all { it }
                     }
                     showRestartDialog = false
 

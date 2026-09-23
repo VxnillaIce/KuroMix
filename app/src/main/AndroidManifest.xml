@@ -57,17 +57,6 @@
         </activity>
 
         <service
-            android:name=".service.RearDisplayService"
-            android:foregroundServiceType="specialUse"
-            android:exported="false">
-
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Rear display mirroring and display management" />
-
-        </service>
-
-        <service
             android:name=".service.MirrorTileService"
             android:label="Mirror to Rear"
             android:icon="@drawable/kuromify_logo"

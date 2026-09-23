@@ -98,7 +98,6 @@ class MainActivity : ComponentActivity() {
                         SubScreen.Settings -> SettingsScreen(onBack = { activeSubScreen = null })
                         SubScreen.MirrorSettings -> RearScreen(onBack = { activeSubScreen = null })
                         SubScreen.HyperIsland -> HyperIslandScreen(onBack = { activeSubScreen = null })
-                        SubScreen.Media -> MediaScreen(onBack = { activeSubScreen = null })
                         null -> {
                             Scaffold(
                                 bottomBar = {
@@ -152,7 +151,6 @@ class MainActivity : ComponentActivity() {
                                             onNavigateToSettings = { activeSubScreen = SubScreen.Settings },
                                             onNavigateToMirrorSettings = { activeSubScreen = SubScreen.MirrorSettings },
                                             onNavigateToHyperIsland = { activeSubScreen = SubScreen.HyperIsland },
-                                            onNavigateToMedia = { activeSubScreen = SubScreen.Media },
                                             bottomPadding = bottomPadding
                                         )
                                         1 -> QuickCastScreen(bottomPadding = bottomPadding)
@@ -178,7 +176,6 @@ class MainActivity : ComponentActivity() {
 enum class SubScreen {
     Settings,
     MirrorSettings,
-    HyperIsland,
-    Media
+    HyperIsland
 }
 

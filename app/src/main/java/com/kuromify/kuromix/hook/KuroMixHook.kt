@@ -1,5 +1,6 @@
 package com.kuromify.kuromix.hook
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Notification
 import android.content.Context
@@ -30,9 +31,12 @@ class KuroMixHook : IXposedHookLoadPackage {
         private const val SETTING_KEY =
             "double_click_power_key"
 
+        // MIUI's native value for the double-click-power gesture.
+        // Confirmed on device: double_click_power_key=mi_pay
         private const val MI_PAY_VALUE =
-            "launch_mi_pay"
+            "mi_pay"
 
+        // Sentinel MIUI does not understand; only meaningful to the hook.
         private const val GOOGLE_WALLET_VALUE =
             "google_wallet"
 
@@ -41,6 +45,11 @@ class KuroMixHook : IXposedHookLoadPackage {
 
         private const val HYPERISLAND_SETTING =
             "kuromix_hyperisland_hook"
+
+        // Single source of truth for the Mi Pay -> Google Wallet toggle.
+        // RootShell.setReplaceMipayProp writes this exact property.
+        private const val REPLACE_MIPAY_PROP =
+            "persist.kuromix.replace_mipay"
 
         private val MI_PAY_STRINGS = arrayOf(
             "Mi Pay",
@@ -63,6 +72,13 @@ class KuroMixHook : IXposedHookLoadPackage {
 
     private val islandHookedClasses =
         ConcurrentHashMap.newKeySet<Class<*>>()
+
+    /**
+     * Returns true when the Google Wallet Enable switch is on.
+     * Backed by persist.kuromix.replace_mipay, written by RootShell.
+     */
+    private fun isMiPayReplacementEnabled(): Boolean =
+        getSysProp(REPLACE_MIPAY_PROP)
 
     private fun isHyperIslandHookEnabled(): Boolean {
         val application =
@@ -170,6 +186,7 @@ class KuroMixHook : IXposedHookLoadPackage {
         }
     }
 
+    @SuppressLint("PrivateApi")
     private fun getSysProp(
         key: String
     ): Boolean {
@@ -208,6 +225,12 @@ class KuroMixHook : IXposedHookLoadPackage {
                     override fun afterHookedMethod(
                         param: MethodHookParam
                     ) {
+                        // Respect the Google Wallet Enable toggle.
+                        // When off, Mi Pay launches normally.
+                        if (!isMiPayReplacementEnabled()) {
+                            return
+                        }
+
                         val activity =
                             param.thisObject as? Activity
                                 ?: return
@@ -225,9 +248,12 @@ class KuroMixHook : IXposedHookLoadPackage {
                                 null
                             }
 
+                        // MIUI sets this to "mi_pay" natively. Accept the
+                        // old sentinel too, in case the setting was written
+                        // by an earlier build of this module.
                         if (
                             selected == MI_PAY_VALUE ||
-                            selected == "mi_pay"
+                            selected == "launch_mi_pay"
                         ) {
                             XposedBridge.log(
                                 "$TAG: $LOG " +
@@ -784,6 +810,11 @@ class KuroMixHook : IXposedHookLoadPackage {
                     override fun beforeHookedMethod(
                         param: MethodHookParam
                     ) {
+                        // Respect the Google Wallet Enable toggle.
+                        if (!isMiPayReplacementEnabled()) {
+                            return
+                        }
+
                         val count =
                             (param.args
                                 .getOrNull(2) as? Int)
@@ -813,7 +844,11 @@ class KuroMixHook : IXposedHookLoadPackage {
                                 null
                             }
 
+                        // Accept MIUI's native "mi_pay" and the legacy
+                        // sentinel "launch_mi_pay" / "google_wallet".
                         if (
+                            selected == MI_PAY_VALUE ||
+                            selected == "launch_mi_pay" ||
                             selected == GOOGLE_WALLET_VALUE
                         ) {
                             XposedBridge.log(
@@ -837,7 +872,7 @@ class KuroMixHook : IXposedHookLoadPackage {
 
         tryHook("Settings Mi Pay text replacement") {
 
-            if (!isMiPayReplacementEnabled(lpparam)) {
+            if (!isMiPayReplacementEnabled()) {
                 return@tryHook
             }
 
@@ -914,10 +949,6 @@ class KuroMixHook : IXposedHookLoadPackage {
                     "com.android.settings.gesture.DoubleClickPowerKeySettingsActivity",
                     lpparam.classLoader
                 )
-                    ?: XposedHelpers.findClassIfExists(
-                        "com.android.settings.gesture.DoubleClickPowerKeySettingsActivity",
-                        lpparam.classLoader
-                    )
                     ?: return@tryHook
 
             XposedHelpers.findAndHookMethod(
@@ -939,21 +970,22 @@ class KuroMixHook : IXposedHookLoadPackage {
         }
     }
 
-    private fun isMiPayReplacementEnabled(
-        lpparam: XC_LoadPackage.LoadPackageParam
-    ): Boolean {
-        return try {
-            getSysProp(
-                "persist.sys.kuromix.googlewallet"
-            )
-        } catch (_: Throwable) {
-            false
-        }
-    }
-
+    /**
+     * Reflects the "Google Wallet" row as selected in MIUI's gesture list,
+     * so the UI matches what the hook actually does.
+     *
+     * NOTE: This intentionally does NOT write double_click_power_key.
+     * MIUI keeps its native value ("mi_pay"); the hook handles redirection.
+     * Writing the setting here is what previously left the device stuck on
+     * "none" after disabling.
+     */
     private fun syncSelection(
         activity: Activity
     ) {
+        if (!isMiPayReplacementEnabled()) {
+            return
+        }
+
         try {
             val root =
                 activity.window?.decorView
@@ -971,15 +1003,9 @@ class KuroMixHook : IXposedHookLoadPackage {
                 true
             )
 
-            Settings.System.putString(
-                activity.contentResolver,
-                SETTING_KEY,
-                MI_PAY_VALUE
-            )
-
             XposedBridge.log(
                 "$TAG: $LOG " +
-                        "Google Wallet selection synced"
+                        "Google Wallet row highlighted (setting untouched)"
             )
 
         } catch (t: Throwable) {
@@ -1085,7 +1111,7 @@ class KuroMixHook : IXposedHookLoadPackage {
 
         tryHook("MiInput Mi Pay text replacement") {
 
-            if (!isMiPayReplacementEnabled(lpparam)) {
+            if (!isMiPayReplacementEnabled()) {
                 return@tryHook
             }
 
@@ -1143,6 +1169,10 @@ class KuroMixHook : IXposedHookLoadPackage {
                         override fun afterHookedMethod(
                             param: MethodHookParam
                         ) {
+
+                            if (!isMiPayReplacementEnabled()) {
+                                return
+                            }
 
                             val result =
                                 param.result
@@ -1356,6 +1386,10 @@ class KuroMixHook : IXposedHookLoadPackage {
                         param: MethodHookParam
                     ) {
                         try {
+                            if (!isMiPayReplacementEnabled()) {
+                                return
+                            }
+
                             val selected =
                                 Settings.System.getString(
                                     null,
@@ -1364,7 +1398,7 @@ class KuroMixHook : IXposedHookLoadPackage {
 
                             if (
                                 selected != MI_PAY_VALUE &&
-                                selected != "mi_pay"
+                                selected != "launch_mi_pay"
                             ) {
                                 return
                             }

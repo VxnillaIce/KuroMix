@@ -7,10 +7,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.media.session.MediaController
-import android.media.session.MediaSession
 import android.os.BatteryManager
-import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.os.SystemClock
@@ -40,15 +37,15 @@ object SuperIslandManager {
         "kuromix_hyperisland"
 
     private const val MIRROR_NOTIFICATION_ID = 202
-    private const val TEST_NOTIFICATION_ID = 203
     private const val DOWNLOAD_NOTIFICATION_ID = 204
     private const val LIVE_NOTIFICATION_ID = 205
-
-    private const val TEST_BUSINESS_ID =
-        "kuromix_live"
+    private const val MIRROR_LIVE_NOTIFICATION_ID = 207
 
     private const val DOWNLOAD_BUSINESS_ID =
         "download"
+
+    private const val MIRROR_LIVE_BUSINESS_ID =
+        "mirror_live"
 
     private const val EXTRA_FOCUS_PARAM =
         "miui.focus.param"
@@ -59,6 +56,9 @@ object SuperIslandManager {
     private const val HYPERISLAND_SETTING =
         "kuromix_hyperisland_hook"
 
+    private const val SPLIT_SECOND_TIMEOUT_MS = 5000L
+
+    // Kept for receiver compatibility. Not used internally anymore.
     const val ACTION_MEDIA_PLAY =
         "com.kuromify.kuromix.MEDIA_PLAY"
 
@@ -95,17 +95,7 @@ object SuperIslandManager {
     const val ACTION_DOWNLOAD_RESET =
         "com.kuromify.kuromix.DOWNLOAD_RESET"
 
-    private const val MEDIA_TOGGLE_REQUEST_CODE = 7100
-
     private const val CLOSE_REQUEST_CODE_BASE = 0x4B55524F
-
-    @Volatile
-    private var displayedMediaPackage: String? = null
-
-    @Volatile
-    private var lastMediaToggleMs = 0L
-
-    private const val MEDIA_TOGGLE_DEBOUNCE_MS = 350L
 
     private val mainHandler =
         android.os.Handler(
@@ -118,13 +108,17 @@ object SuperIslandManager {
     private var currentLiveMode =
         LiveMode.CLOCK
 
+    @Volatile
+    private var currentDisplayMode: String = "always"
+
+    private var splitTimeoutRunnable: Runnable? = null
+
     private var batteryReceiver:
             BroadcastReceiver? = null
 
     private var clockRunnable: Runnable? = null
     private var timerRunnable: Runnable? = null
     private var networkRunnable: Runnable? = null
-    private var mediaRunnable: Runnable? = null
     private var temperatureRunnable: Runnable? = null
 
     private var lastRxBytes = -1L
@@ -137,7 +131,6 @@ object SuperIslandManager {
 
     private enum class LiveMode {
         CHARGING,
-        MEDIA,
         CLOCK,
         TIMER,
         NETWORK,
@@ -150,31 +143,6 @@ object SuperIslandManager {
         val pendingIntent: PendingIntent,
         val iconRes: Int
     )
-
-    private var pendingMediaActions =
-        mutableListOf<FocusAction>()
-
-    private fun mediaIcon(
-        key: String
-    ): Int {
-        return when (key) {
-
-            "previous" ->
-                android.R.drawable.ic_media_previous
-
-            "pause" ->
-                android.R.drawable.ic_media_pause
-
-            "play" ->
-                android.R.drawable.ic_media_play
-
-            "next" ->
-                android.R.drawable.ic_media_next
-
-            else ->
-                android.R.drawable.ic_menu_close_clear_cancel
-        }
-    }
 
     private fun closeIcon(): Int {
         return android.R.drawable.ic_menu_close_clear_cancel
@@ -201,19 +169,6 @@ object SuperIslandManager {
 
             0
         }
-    }
-
-    fun refreshMediaNow(
-        context: Context
-    ) {
-        if (
-            !liveRunning ||
-            currentLiveMode != LiveMode.MEDIA
-        ) {
-            return
-        }
-
-        updateMediaIsland(context)
     }
 
     fun isHyperIslandSupported(
@@ -248,54 +203,6 @@ object SuperIslandManager {
         }
     }
 
-    fun hasFocusPermission(
-        context: Context
-    ): Boolean {
-        return try {
-
-            val uri =
-                android.net.Uri.parse(
-                    "content://miui.statusbar.notification.public"
-                )
-
-            val cursor =
-                context.contentResolver.query(
-                    uri,
-                    null,
-                    "package=?",
-                    arrayOf(context.packageName),
-                    null
-                )
-
-            cursor?.use {
-
-                if (it.moveToFirst()) {
-
-                    val index =
-                        it.getColumnIndex(
-                            "canShowFocus"
-                        )
-
-                    if (index >= 0) {
-                        return it.getInt(index) != 0
-                    }
-                }
-            }
-
-            true
-
-        } catch (e: Exception) {
-
-            Log.w(
-                TAG,
-                "Focus permission provider unavailable",
-                e
-            )
-
-            true
-        }
-    }
-
     fun isHyperIslandHookEnabled(
         context: Context
     ): Boolean {
@@ -320,20 +227,19 @@ object SuperIslandManager {
         val result =
             Shell.cmd(
                 "settings put global " +
-                    "$HYPERISLAND_SETTING $value"
+                        "$HYPERISLAND_SETTING $value"
             ).exec()
 
         Log.d(
             TAG,
             "HyperIsland hook setting = " +
-                "$enabled, success=${result.isSuccess}"
+                    "$enabled, success=${result.isSuccess}"
         )
 
         if (!enabled) {
             stopLiveUpdates(context)
             stopDownloadTest(context)
-            cancelTestIsland(context)
-            displayedMediaPackage = null
+            cancelMirrorIsland(context)
         }
     }
 
@@ -371,6 +277,14 @@ object SuperIslandManager {
             }
 
         manager.createNotificationChannel(channel)
+    }
+
+    /**
+     * Ensure the notification channel exists. Call once at app startup so
+     * the very first notify() does not race channel creation.
+     */
+    fun ensureChannel(context: Context) {
+        createNotificationChannel(context)
     }
 
     fun isLiveUpdatesRunning(): Boolean {
@@ -416,12 +330,16 @@ object SuperIslandManager {
         createNotificationChannel(context)
 
         startCurrentLiveMode(context)
+
+        applyDisplayModeTimeout(context)
     }
 
     fun switchLiveMode(
         context: Context,
-        mode: String
+        mode: String,
+        displayMode: String = "always"
     ) {
+        currentDisplayMode = displayMode
 
         if (!liveRunning) {
 
@@ -438,11 +356,9 @@ object SuperIslandManager {
         currentLiveMode =
             parseMode(mode)
 
-        if (currentLiveMode != LiveMode.MEDIA) {
-            displayedMediaPackage = null
-        }
-
         startCurrentLiveMode(context)
+
+        applyDisplayModeTimeout(context)
     }
 
     private fun startCurrentLiveMode(
@@ -453,9 +369,6 @@ object SuperIslandManager {
 
             LiveMode.CHARGING ->
                 startChargingUpdates(context)
-
-            LiveMode.MEDIA ->
-                startMediaUpdates(context)
 
             LiveMode.CLOCK ->
                 startClockUpdates(context)
@@ -482,11 +395,6 @@ object SuperIslandManager {
             "charging",
             "battery" ->
                 LiveMode.CHARGING
-
-            "media",
-            "music",
-            "player" ->
-                LiveMode.MEDIA
 
             "clock",
             "time" ->
@@ -525,7 +433,10 @@ object SuperIslandManager {
 
         stopLiveRunnablesOnly(context)
 
-        displayedMediaPackage = null
+        splitTimeoutRunnable?.let(
+            mainHandler::removeCallbacks
+        )
+        splitTimeoutRunnable = null
 
         try {
 
@@ -561,10 +472,6 @@ object SuperIslandManager {
             mainHandler::removeCallbacks
         )
 
-        mediaRunnable?.let(
-            mainHandler::removeCallbacks
-        )
-
         temperatureRunnable?.let(
             mainHandler::removeCallbacks
         )
@@ -572,7 +479,6 @@ object SuperIslandManager {
         clockRunnable = null
         timerRunnable = null
         networkRunnable = null
-        mediaRunnable = null
         temperatureRunnable = null
 
         batteryReceiver?.let {
@@ -587,6 +493,44 @@ object SuperIslandManager {
         }
 
         batteryReceiver = null
+    }
+
+    private fun applyDisplayModeTimeout(
+        context: Context
+    ) {
+
+        splitTimeoutRunnable?.let(
+            mainHandler::removeCallbacks
+        )
+        splitTimeoutRunnable = null
+
+        if (currentLiveMode == LiveMode.TIMER) return
+
+        if (currentDisplayMode != "split") return
+
+        val runnable =
+            Runnable {
+
+                if (!liveRunning) return@Runnable
+
+                try {
+
+                    context.getSystemService(
+                        NotificationManager::class.java
+                    ).cancel(
+                        LIVE_NOTIFICATION_ID
+                    )
+
+                } catch (_: Exception) {
+                }
+            }
+
+        splitTimeoutRunnable = runnable
+
+        mainHandler.postDelayed(
+            runnable,
+            SPLIT_SECOND_TIMEOUT_MS
+        )
     }
 
     fun startChargingUpdates(
@@ -766,12 +710,6 @@ object SuperIslandManager {
 
         return try {
 
-            if (
-                Build.VERSION.SDK_INT < 21
-            ) {
-                return 0L
-            }
-
             val manager =
                 context.getSystemService(
                     BatteryManager::class.java
@@ -793,824 +731,6 @@ object SuperIslandManager {
 
             0L
         }
-    }
-
-    fun startMediaUpdates(
-        context: Context
-    ) {
-
-        stopLiveRunnablesOnly(context)
-
-        val runnable =
-            object : Runnable {
-
-                override fun run() {
-
-                    if (
-                        !liveRunning ||
-                        currentLiveMode !=
-                        LiveMode.MEDIA
-                    ) {
-                        return
-                    }
-
-                    updateMediaIsland(context)
-
-                    mediaRunnable = this
-
-                    mainHandler.postDelayed(
-                        this,
-                        750L
-                    )
-                }
-            }
-
-        mediaRunnable = runnable
-
-        mainHandler.post(runnable)
-    }
-
-    private fun updateMediaIsland(
-        context: Context
-    ) {
-
-        pendingMediaActions.clear()
-
-        val service =
-            MediaSessionListenerService.instance
-
-        val previousPackage =
-            displayedMediaPackage
-
-        val media =
-            service?.findBestMediaSnapshot(
-                preferredPackage =
-                    previousPackage
-            )
-                ?: service?.findBestMediaSnapshot()
-
-        if (media == null) {
-
-            displayedMediaPackage = null
-
-            Log.d(
-                TAG,
-                "No media notification/session found"
-            )
-
-            showLiveIsland(
-                context,
-                "Media",
-                "No active player",
-                "media_live",
-                includeClose = true
-            )
-
-            return
-        }
-
-        displayedMediaPackage =
-            media.packageName
-
-        val title =
-            media.title.ifBlank {
-                "Unknown track"
-            }
-
-        val artist =
-            media.artist.ifBlank {
-
-                media.appName.ifBlank {
-                    media.packageName
-                }
-            }
-
-        val positionText =
-            formatMediaTime(
-                media.position.coerceAtLeast(0L)
-            )
-
-        val durationText =
-            if (media.duration > 0L) {
-
-                formatMediaTime(
-                    media.duration
-                )
-
-            } else {
-                "--:--"
-            }
-
-        Log.d(
-            TAG,
-            "Media snapshot: " +
-                    "package=${media.packageName}, " +
-                    "title=$title, " +
-                    "artist=$artist, " +
-                    "playing=${media.playing}, " +
-                    "state=${media.playbackState}, " +
-                    "actions=${media.actions.size}"
-        )
-
-        val builder =
-            buildLiveBuilder(
-                context = context,
-                business = "media_live",
-                title = artist,
-                content =
-                    "$title • " +
-                            "$positionText / $durationText"
-            )
-
-        addMediaAction(
-            context = context,
-            key = "previous",
-            title = "Previous",
-            media = media
-        )
-
-        val playbackKey =
-            if (media.playing) {
-                "pause"
-            } else {
-                "play"
-            }
-
-        addMediaAction(
-            context = context,
-            key = playbackKey,
-            title =
-                if (media.playing) {
-                    "Pause"
-                } else {
-                    "Play"
-                },
-            media = media
-        )
-
-        addMediaAction(
-            context = context,
-            key = "next",
-            title = "Next",
-            media = media
-        )
-
-        notifyHyperIsland(
-            context = context,
-            title = artist,
-            notificationId = LIVE_NOTIFICATION_ID,
-            builder = builder,
-            focusActions = pendingMediaActions,
-            includeClose = false
-        )
-    }
-
-    private fun addMediaAction(
-        context: Context,
-        key: String,
-        title: String,
-        media: MediaSessionListenerService.MediaSnapshot
-    ) {
-
-        try {
-
-            if (
-                key == "play" ||
-                key == "pause"
-            ) {
-
-                val toggleIntent =
-                    Intent(
-                        context,
-                        KuroMixReceiver::class.java
-                    ).apply {
-
-                        action =
-                            ACTION_MEDIA_TOGGLE
-
-                        putExtra(
-                            "packageName",
-                            media.packageName
-                        )
-
-                        addFlags(
-                            Intent.FLAG_RECEIVER_FOREGROUND
-                        )
-                    }
-
-                val togglePendingIntent =
-                    PendingIntent.getBroadcast(
-                        context,
-                        MEDIA_TOGGLE_REQUEST_CODE,
-                        toggleIntent,
-                        PendingIntent.FLAG_UPDATE_CURRENT or
-                                PendingIntent.FLAG_IMMUTABLE
-                    )
-
-                pendingMediaActions.add(
-                    FocusAction(
-                        key = "media_toggle",
-                        title = title,
-                        pendingIntent =
-                            togglePendingIntent,
-                        iconRes =
-                            mediaIcon(key)
-                    )
-                )
-
-                Log.d(
-                    TAG,
-                    "Stable media toggle: " +
-                            "display=$key, " +
-                            "package=${media.packageName}"
-                )
-
-                return
-            }
-
-            val originalAction =
-                media.actions.firstOrNull {
-                    it.key == key
-                }
-
-            if (originalAction != null) {
-
-                pendingMediaActions.add(
-                    FocusAction(
-                        key = key,
-                        title = title,
-                        pendingIntent =
-                            originalAction.pendingIntent,
-                        iconRes =
-                            mediaIcon(key)
-                    )
-                )
-
-                Log.d(
-                    TAG,
-                    "Using original media action: " +
-                            "$key -> ${media.packageName}"
-                )
-
-                return
-            }
-
-            val action =
-                when (key) {
-
-                    "next" ->
-                        ACTION_MEDIA_NEXT
-
-                    "previous" ->
-                        ACTION_MEDIA_PREVIOUS
-
-                    else ->
-                        return
-                }
-
-            val fallbackIntent =
-                Intent(
-                    context,
-                    KuroMixReceiver::class.java
-                ).apply {
-
-                    this.action =
-                        action
-
-                    putExtra(
-                        "packageName",
-                        media.packageName
-                    )
-
-                    addFlags(
-                        Intent.FLAG_RECEIVER_FOREGROUND
-                    )
-                }
-
-            val pendingIntent =
-                PendingIntent.getBroadcast(
-                    context,
-                    (
-                            "media_fallback_$key"
-                                .hashCode()
-                            ) and 0x7fffffff,
-                    fallbackIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or
-                            PendingIntent.FLAG_IMMUTABLE
-                )
-
-            pendingMediaActions.add(
-                FocusAction(
-                    key = key,
-                    title = title,
-                    pendingIntent =
-                        pendingIntent,
-                    iconRes =
-                        mediaIcon(key)
-                )
-            )
-
-            Log.d(
-                TAG,
-                "Using KuroMix fallback for $key"
-            )
-
-        } catch (e: Exception) {
-
-            Log.e(
-                TAG,
-                "Failed to create media action: $key",
-                e
-            )
-        }
-    }
-
-    fun performMediaToggle(): Boolean {
-        return performMediaToggle(
-            displayedMediaPackage
-        )
-    }
-
-    fun performMediaToggle(
-        preferredPackage: String?
-    ): Boolean {
-
-        val now =
-            SystemClock.elapsedRealtime()
-
-        if (
-            now - lastMediaToggleMs <
-            MEDIA_TOGGLE_DEBOUNCE_MS
-        ) {
-
-            Log.d(
-                TAG,
-                "MEDIA_TOGGLE ignored: debounce"
-            )
-
-            return false
-        }
-
-        lastMediaToggleMs = now
-
-        val service =
-            MediaSessionListenerService.instance
-                ?: run {
-
-                    Log.w(
-                        TAG,
-                        "MEDIA_TOGGLE: listener not connected"
-                    )
-
-                    return false
-                }
-
-        var snapshot =
-            if (
-                !preferredPackage.isNullOrBlank()
-            ) {
-                service.findBestMediaSnapshot(
-                    preferredPackage =
-                        preferredPackage
-                )
-            } else {
-                null
-            }
-
-        if (snapshot == null) {
-
-            snapshot =
-                service.findBestMediaSnapshot()
-        }
-
-        if (snapshot == null) {
-
-            Log.w(
-                TAG,
-                "MEDIA_TOGGLE: no media snapshot"
-            )
-
-            return false
-        }
-
-        val controller =
-            snapshot.controller
-
-        if (controller == null) {
-
-            val fallbackKey =
-                if (snapshot.playing) {
-                    "pause"
-                } else {
-                    "play"
-                }
-
-            val notificationAction =
-                snapshot.actions.firstOrNull {
-                    it.key == fallbackKey
-                }
-
-            if (notificationAction != null) {
-
-                return try {
-
-                    notificationAction
-                        .pendingIntent
-                        .send()
-
-                    Log.d(
-                        TAG,
-                        "MEDIA_TOGGLE fallback PendingIntent: " +
-                                "${snapshot.packageName} / " +
-                                fallbackKey
-                    )
-
-                    scheduleMediaRefresh(
-                        applicationContext(),
-                        250L
-                    )
-
-                    scheduleMediaRefresh(
-                        applicationContext(),
-                        700L
-                    )
-
-                    true
-
-                } catch (e: Exception) {
-
-                    Log.e(
-                        TAG,
-                        "MEDIA_TOGGLE fallback failed",
-                        e
-                    )
-
-                    false
-                }
-            }
-
-            Log.w(
-                TAG,
-                "MEDIA_TOGGLE: no controller and no fallback action"
-            )
-
-            return false
-        }
-
-        val state =
-            controller.playbackState
-
-        val playbackState =
-            state?.state
-                ?: android.media.session
-                    .PlaybackState
-                    .STATE_NONE
-
-        val actions =
-            state?.actions ?: 0L
-
-        Log.d(
-            TAG,
-            "MEDIA_TOGGLE: " +
-                    "preferredPackage=$preferredPackage, " +
-                    "selectedPackage=${snapshot.packageName}, " +
-                    "controllerPackage=${controller.packageName}, " +
-                    "state=$playbackState, " +
-                    "snapshotPlaying=${snapshot.playing}, " +
-                    "actions=$actions"
-        )
-
-        return try {
-
-            when (playbackState) {
-
-                android.media.session
-                    .PlaybackState
-                    .STATE_PLAYING -> {
-
-                    Log.d(
-                        TAG,
-                        "MEDIA_TOGGLE -> PAUSE"
-                    )
-
-                    controller.transportControls
-                        .pause()
-                }
-
-                android.media.session
-                    .PlaybackState
-                    .STATE_BUFFERING -> {
-
-                    if (
-                        actions and
-                        android.media.session
-                            .PlaybackState
-                            .ACTION_PAUSE != 0L
-                    ) {
-
-                        Log.d(
-                            TAG,
-                            "MEDIA_TOGGLE BUFFERING -> PAUSE"
-                        )
-
-                        controller.transportControls
-                            .pause()
-
-                    } else {
-
-                        Log.d(
-                            TAG,
-                            "MEDIA_TOGGLE BUFFERING -> PLAY"
-                        )
-
-                        controller.transportControls
-                            .play()
-                    }
-                }
-
-                android.media.session
-                    .PlaybackState
-                    .STATE_PAUSED,
-
-                android.media.session
-                    .PlaybackState
-                    .STATE_STOPPED -> {
-
-                    Log.d(
-                        TAG,
-                        "MEDIA_TOGGLE -> PLAY"
-                    )
-
-                    controller.transportControls
-                        .play()
-                }
-
-                android.media.session
-                    .PlaybackState
-                    .STATE_NONE -> {
-
-                    if (
-                        actions and
-                        android.media.session
-                            .PlaybackState
-                            .ACTION_PLAY == 0L &&
-                        actions and
-                        android.media.session
-                            .PlaybackState
-                            .ACTION_PAUSE != 0L
-                    ) {
-
-                        Log.d(
-                            TAG,
-                            "MEDIA_TOGGLE NONE -> PAUSE"
-                        )
-
-                        controller.transportControls
-                            .pause()
-
-                    } else {
-
-                        Log.d(
-                            TAG,
-                            "MEDIA_TOGGLE NONE -> PLAY"
-                        )
-
-                        controller.transportControls
-                            .play()
-                    }
-                }
-
-                android.media.session
-                    .PlaybackState
-                    .STATE_ERROR -> {
-
-                    Log.d(
-                        TAG,
-                        "MEDIA_TOGGLE ERROR -> PLAY"
-                    )
-
-                    controller.transportControls
-                        .play()
-                }
-
-                else -> {
-
-                    val canPause =
-                        actions and
-                                android.media.session
-                                    .PlaybackState
-                                    .ACTION_PAUSE !=
-                                0L
-
-                    val canPlay =
-                        actions and
-                                android.media.session
-                                    .PlaybackState
-                                    .ACTION_PLAY !=
-                                0L
-
-                    if (
-                        canPause &&
-                        !canPlay
-                    ) {
-
-                        Log.d(
-                            TAG,
-                            "MEDIA_TOGGLE UNKNOWN -> PAUSE"
-                        )
-
-                        controller.transportControls
-                            .pause()
-
-                    } else {
-
-                        Log.d(
-                            TAG,
-                            "MEDIA_TOGGLE UNKNOWN -> PLAY"
-                        )
-
-                        controller.transportControls
-                            .play()
-                    }
-                }
-            }
-
-            displayedMediaPackage =
-                snapshot.packageName
-
-            true
-
-        } catch (e: Exception) {
-
-            Log.e(
-                TAG,
-                "MEDIA_TOGGLE failed",
-                e
-            )
-
-            false
-        }
-    }
-
-    private fun refreshMediaIslandDelayed(
-        context: Context,
-        delayMs: Long
-    ) {
-        android.os.Handler(
-            android.os.Looper.getMainLooper()
-        ).postDelayed(
-            {
-                updateMediaIsland(context)
-            },
-            delayMs
-        )
-    }
-
-    private fun performMediaActionForPackage(
-        context: Context,
-        action: String,
-        packageName: String?
-    ) {
-        val service =
-            MediaSessionListenerService.instance
-                ?: return
-
-        val snapshot =
-            service.findBestMediaSnapshot(
-                preferredPackage = packageName
-            ) ?: service.findBestMediaSnapshot()
-            ?: return
-
-        val controller =
-            snapshot.controller
-                ?: return
-
-        try {
-            when (action) {
-
-                ACTION_MEDIA_PLAY -> {
-                    controller.transportControls.play()
-                }
-
-                ACTION_MEDIA_PAUSE -> {
-                    controller.transportControls.pause()
-                }
-
-                ACTION_MEDIA_NEXT -> {
-                    controller.transportControls.skipToNext()
-                }
-
-                ACTION_MEDIA_PREVIOUS -> {
-                    controller.transportControls.skipToPrevious()
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e(
-                "SuperIslandManager",
-                "Failed media action: $action",
-                e
-            )
-        }
-    }
-
-    fun performMediaAction(
-        context: Context,
-        action: String,
-        packageName: String? = null
-    ) {
-        when (action) {
-
-            ACTION_MEDIA_TOGGLE -> {
-                val targetPackage =
-                    packageName?.takeIf { it.isNotBlank() }
-                        ?: displayedMediaPackage
-
-                performMediaToggle(
-                    targetPackage
-                )
-
-                refreshMediaIslandDelayed(context, 200L)
-                refreshMediaIslandDelayed(context, 500L)
-                refreshMediaIslandDelayed(context, 900L)
-                refreshMediaIslandDelayed(context, 1400L)
-
-                return
-            }
-
-            ACTION_MEDIA_PLAY,
-            ACTION_MEDIA_PAUSE,
-            ACTION_MEDIA_NEXT,
-            ACTION_MEDIA_PREVIOUS -> {
-
-                val targetPackage =
-                    packageName?.takeIf { it.isNotBlank() }
-                        ?: displayedMediaPackage
-
-                performMediaActionForPackage(
-                    context = context,
-                    action = action,
-                    packageName = targetPackage
-                )
-
-                refreshMediaIslandDelayed(context, 200L)
-                refreshMediaIslandDelayed(context, 500L)
-                refreshMediaIslandDelayed(context, 900L)
-
-                return
-            }
-        }
-    }
-    private fun scheduleMediaRefresh(
-        context: Context,
-        delay: Long
-    ) {
-
-        mainHandler.postDelayed(
-            {
-
-                if (
-                    liveRunning &&
-                    currentLiveMode ==
-                    LiveMode.MEDIA
-                ) {
-
-                    updateMediaIsland(context)
-                }
-
-            },
-            delay
-        )
-    }
-
-    private fun applicationContext(): Context {
-
-        return MediaSessionListenerService
-            .instance
-            ?.applicationContext
-            ?: throw IllegalStateException(
-                "MediaSessionListenerService unavailable"
-            )
-    }
-
-    private fun formatMediaTime(
-        ms: Long
-    ): String {
-
-        val totalSeconds =
-            ms / 1000L
-
-        val minutes =
-            totalSeconds / 60L
-
-        val seconds =
-            totalSeconds % 60L
-
-        return String.format(
-            Locale.US,
-            "%02d:%02d",
-            minutes,
-            seconds
-        )
     }
 
     fun startClockUpdates(
@@ -1693,17 +813,34 @@ object SuperIslandManager {
         )
     }
 
-    private const val TIMER_DURATION_MS =
+    @Volatile
+    private var timerDurationMs: Long =
         5L * 60L * 1000L
 
     @Volatile
-    private var timerRemainingMs =
-        TIMER_DURATION_MS
+    private var timerRemainingMs: Long =
+        timerDurationMs
 
     @Volatile
     private var timerPaused = false
 
     private var timerLastTickMs = 0L
+
+    fun setTimerDuration(
+        minutes: Int,
+        seconds: Int
+    ) {
+        val total =
+            (minutes.coerceAtLeast(0) * 60L +
+                    seconds.coerceAtLeast(0)) * 1000L
+
+        timerDurationMs =
+            if (total <= 0L) 60_000L else total
+
+        timerRemainingMs = timerDurationMs
+        timerPaused = false
+        timerLastTickMs = SystemClock.elapsedRealtime()
+    }
 
     fun startTimerUpdates(
         context: Context
@@ -1713,7 +850,7 @@ object SuperIslandManager {
 
         if (timerRemainingMs <= 0L) {
             timerRemainingMs =
-                TIMER_DURATION_MS
+                timerDurationMs
         }
 
         timerPaused = false
@@ -1826,7 +963,7 @@ object SuperIslandManager {
             buildLiveBuilder(
                 context = context,
                 business = "timer_live",
-                title = "5 Min Timer",
+                title = "Timer",
                 content =
                     if (
                         timerRemainingMs == 0L
@@ -1853,9 +990,9 @@ object SuperIslandManager {
                         ),
                     iconRes =
                         if (timerPaused) {
-                            mediaIcon("play")
+                            android.R.drawable.ic_media_play
                         } else {
-                            mediaIcon("pause")
+                            android.R.drawable.ic_media_pause
                         }
                 ),
 
@@ -1877,7 +1014,7 @@ object SuperIslandManager {
 
         notifyHyperIsland(
             context,
-            "5 Min Timer",
+            "Timer",
             LIVE_NOTIFICATION_ID,
             builder,
             focusActions = actions,
@@ -1940,7 +1077,7 @@ object SuperIslandManager {
         if (timerRemainingMs <= 0L) {
 
             timerRemainingMs =
-                TIMER_DURATION_MS
+                timerDurationMs
         }
 
         timerPaused = false
@@ -1963,7 +1100,7 @@ object SuperIslandManager {
     ) {
 
         timerRemainingMs =
-            TIMER_DURATION_MS
+            timerDurationMs
 
         timerPaused = false
 
@@ -2629,6 +1766,8 @@ object SuperIslandManager {
                 includeClose = includeClose
             )
 
+            applyDisplayModeTimeout(context)
+
         } catch (e: Exception) {
 
             Log.e(
@@ -2694,13 +1833,13 @@ object SuperIslandManager {
                         builder.buildResourceBundle()
                     )
 
+            val wantsFocusExtras =
+                notificationId == LIVE_NOTIFICATION_ID ||
+                        notificationId == DOWNLOAD_NOTIFICATION_ID ||
+                        notificationId == MIRROR_LIVE_NOTIFICATION_ID
+
             if (
-                (
-                        notificationId ==
-                                LIVE_NOTIFICATION_ID ||
-                                notificationId ==
-                                DOWNLOAD_NOTIFICATION_ID
-                        ) &&
+                wantsFocusExtras &&
                 focusActions.isNotEmpty()
             ) {
 
@@ -2722,12 +1861,7 @@ object SuperIslandManager {
             }
 
             if (
-                (
-                        notificationId ==
-                                LIVE_NOTIFICATION_ID ||
-                                notificationId ==
-                                DOWNLOAD_NOTIFICATION_ID
-                        ) &&
+                wantsFocusExtras &&
                 includeClose
             ) {
 
@@ -2744,12 +1878,7 @@ object SuperIslandManager {
                 notificationBuilder.build()
 
             if (
-                (
-                        notificationId ==
-                                LIVE_NOTIFICATION_ID ||
-                                notificationId ==
-                                DOWNLOAD_NOTIFICATION_ID
-                        ) &&
+                wantsFocusExtras &&
                 focusActions.isNotEmpty()
             ) {
 
@@ -2791,12 +1920,7 @@ object SuperIslandManager {
             }
 
             if (
-                (
-                        notificationId ==
-                                LIVE_NOTIFICATION_ID ||
-                                notificationId ==
-                                DOWNLOAD_NOTIFICATION_ID
-                        ) &&
+                wantsFocusExtras &&
                 includeClose
             ) {
 
@@ -2876,95 +2000,6 @@ object SuperIslandManager {
                 )
                     ?: return json
 
-            val isMediaBottomMode =
-                !includeClose &&
-                        actions.any {
-                            it.key == "media_toggle"
-                        }
-
-            if (isMediaBottomMode) {
-
-                val orderedKeys =
-                    listOf(
-                        "previous",
-                        "media_toggle",
-                        "next"
-                    )
-
-                val orderedActions =
-                    orderedKeys.mapNotNull { wantedKey ->
-                        actions.firstOrNull {
-                            it.key == wantedKey
-                        }
-                    }
-
-                val bottomArray =
-                    JSONArray()
-
-                orderedActions.forEach { item ->
-
-                    val bottomObject =
-                        JSONObject().apply {
-
-                            put(
-                                "type",
-                                2
-                            )
-
-                            put(
-                                "actionTitle",
-                                item.title
-                            )
-
-                            put(
-                                "action",
-                                "miui.focus.action_${item.key}"
-                            )
-
-                            put(
-                                "actionIntentType",
-                                2
-                            )
-
-                            put(
-                                "actionIntent",
-                                createMediaIntentForJson(
-                                    context,
-                                    item
-                                ).toFocusIntentUri()
-                            )
-                        }
-
-                    bottomArray.put(
-                        bottomObject
-                    )
-
-                    Log.d(
-                        TAG,
-                        "Focus JSON (bottom): " +
-                                "miui.focus.action_${item.key}"
-                    )
-                }
-
-                if (bottomArray.length() > 0) {
-
-                    paramV2.put(
-                        "textButton",
-                        bottomArray
-                    )
-                }
-
-                paramV2.remove("actions")
-
-                Log.d(
-                    TAG,
-                    "Focus JSON: media bottom mode " +
-                            "(${bottomArray.length()} buttons)"
-                )
-
-                return root.toString()
-            }
-
             if (actions.isNotEmpty()) {
 
                 val actionArray =
@@ -3000,61 +2035,6 @@ object SuperIslandManager {
                 )
             }
 
-            if (includeClose) {
-
-                val closeIntent =
-                    Intent(
-                        context,
-                        KuroMixCloseReceiver::class.java
-                    ).apply {
-
-                        action =
-                            ACTION_CLOSE_LIVE
-                    }
-
-                val closeArray =
-                    JSONArray()
-
-                val closeObject =
-                    JSONObject().apply {
-
-                        put(
-                            "type",
-                            2
-                        )
-
-                        put(
-                            "actionTitle",
-                            "Close"
-                        )
-
-                        put(
-                            "action",
-                            "miui.focus.action_close"
-                        )
-
-                        put(
-                            "actionIntentType",
-                            2
-                        )
-
-                        put(
-                            "actionIntent",
-                            closeIntent
-                                .toFocusIntentUri()
-                        )
-                    }
-
-                closeArray.put(
-                    closeObject
-                )
-
-                paramV2.put(
-                    "textButton",
-                    closeArray
-                )
-            }
-
             root.toString()
 
         } catch (e: Exception) {
@@ -3066,94 +2046,6 @@ object SuperIslandManager {
             )
 
             json
-        }
-    }
-
-    private fun createMediaIntentForJson(
-        context: Context,
-        action: FocusAction
-    ): Intent {
-
-        val mediaPackage =
-            displayedMediaPackage ?: ""
-
-        return when (action.key) {
-
-            "media_toggle" ->
-                Intent(
-                    context,
-                    KuroMixReceiver::class.java
-                ).apply {
-
-                    this.action =
-                        ACTION_MEDIA_TOGGLE
-
-                    putExtra(
-                        "packageName",
-                        mediaPackage
-                    )
-
-                    addFlags(
-                        Intent.FLAG_RECEIVER_FOREGROUND
-                    )
-                }
-
-            "previous" ->
-                Intent(
-                    context,
-                    KuroMixReceiver::class.java
-                ).apply {
-
-                    this.action =
-                        ACTION_MEDIA_PREVIOUS
-
-                    putExtra(
-                        "packageName",
-                        mediaPackage
-                    )
-
-                    addFlags(
-                        Intent.FLAG_RECEIVER_FOREGROUND
-                    )
-                }
-
-            "next" ->
-                Intent(
-                    context,
-                    KuroMixReceiver::class.java
-                ).apply {
-
-                    this.action =
-                        ACTION_MEDIA_NEXT
-
-                    putExtra(
-                        "packageName",
-                        mediaPackage
-                    )
-
-                    addFlags(
-                        Intent.FLAG_RECEIVER_FOREGROUND
-                    )
-                }
-
-            else ->
-                Intent(
-                    context,
-                    KuroMixReceiver::class.java
-                ).apply {
-
-                    this.action =
-                        ACTION_MEDIA_TOGGLE
-
-                    putExtra(
-                        "packageName",
-                        mediaPackage
-                    )
-
-                    addFlags(
-                        Intent.FLAG_RECEIVER_FOREGROUND
-                    )
-                }
         }
     }
 
@@ -3234,69 +2126,7 @@ object SuperIslandManager {
         )
     }
 
-    fun showChargingTest(
-        context: Context,
-        battery: Int = 0,
-        power: Int = 0
-    ) {
-
-        startLiveUpdates(
-            context,
-            "charging"
-        )
-    }
-
-    fun showMediaTest(
-        context: Context,
-        artist: String = "",
-        title: String = ""
-    ) {
-
-        startLiveUpdates(
-            context,
-            "media"
-        )
-    }
-
-    fun showTimerTest(
-        context: Context,
-        remaining: String = ""
-    ) {
-
-        timerRemainingMs =
-            TIMER_DURATION_MS
-
-        timerPaused = false
-
-        startLiveUpdates(
-            context,
-            "timer"
-        )
-    }
-
-    fun showNetworkTest(
-        context: Context,
-        network: String = "",
-        speed: String = ""
-    ) {
-
-        startLiveUpdates(
-            context,
-            "network"
-        )
-    }
-
-    fun showGameTest(
-        context: Context,
-        fps: Int = 0,
-        temperature: Int = 0
-    ) {
-
-        startLiveUpdates(
-            context,
-            "temperature"
-        )
-    }
+    // ─── Mirror notification (plain, legacy) ────────────────────
 
     fun showMirrorNotification(
         context: Context,
@@ -3404,49 +2234,143 @@ object SuperIslandManager {
         }
     }
 
-    fun showTestIsland(
+    // ─── Mirror island (HyperIsland card) ──────────────────────
+
+    fun showMirrorIsland(
         context: Context,
-        title: String = "KuroMix",
-        content: String = "HyperIsland Test",
-        business: String = TEST_BUSINESS_ID
+        packageName: String
     ) {
 
-        showLiveIsland(
-            context,
-            title,
-            content,
-            business
-        )
+        if (!isHyperIslandHookEnabled(context)) return
+
+        try {
+
+            createNotificationChannel(context)
+
+            if (!HyperIslandNotification.isSupported(context)) {
+                showMirrorNotification(context, packageName)
+                return
+            }
+
+            val appLabel = try {
+                context.packageManager
+                    .getApplicationLabel(
+                        context.packageManager
+                            .getApplicationInfo(packageName, 0)
+                    )
+                    .toString()
+            } catch (_: Exception) {
+                packageName
+            }
+
+            val pictureKey =
+                "kuromix_live_$MIRROR_LIVE_BUSINESS_ID"
+
+            val picture =
+                HyperPicture(
+                    pictureKey,
+                    context,
+                    R.drawable.kuromify_logo_w
+                )
+
+            val builder =
+                HyperIslandNotification
+                    .Builder(
+                        context,
+                        MIRROR_LIVE_BUSINESS_ID,
+                        "Rear Display"
+                    )
+                    .setSmallWindowTarget(
+                        "${context.packageName}.MainActivity"
+                    )
+                    .addPicture(picture)
+                    .setChatInfo(
+                        title = appLabel,
+                        content = "Mirroring on rear display",
+                        pictureKey = pictureKey
+                    )
+                    .setSmallIsland(pictureKey)
+                    .setBigIslandInfo(
+                        left = ImageTextInfoLeft(
+                            type = 1,
+                            picInfo = PicInfo(type = 1, pic = pictureKey),
+                            textInfo = TextInfo(title = appLabel)
+                        ),
+                        right = ImageTextInfoRight(
+                            type = 2,
+                            textInfo = TextInfo(title = "Mirroring")
+                        )
+                    )
+                    .setEnableFloat(false)
+                    .setShowNotification(true)
+
+            val stopIntent =
+                Intent(
+                    context,
+                    KuroMixReceiver::class.java
+                ).apply {
+
+                    action =
+                        KuroMixReceiver.ACTION_STOP_MIRROR
+
+                    putExtra("packageName", packageName)
+
+                    addFlags(
+                        Intent.FLAG_RECEIVER_FOREGROUND
+                    )
+                }
+
+            val stopPendingIntent =
+                PendingIntent.getBroadcast(
+                    context,
+                    9101,
+                    stopIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or
+                            PendingIntent.FLAG_IMMUTABLE
+                )
+
+            val actions = listOf(
+                FocusAction(
+                    key = "mirror_stop",
+                    title = "Stop",
+                    pendingIntent = stopPendingIntent,
+                    iconRes = closeIcon()
+                )
+            )
+
+            notifyHyperIsland(
+                context = context,
+                title = "Rear Display",
+                notificationId = MIRROR_LIVE_NOTIFICATION_ID,
+                builder = builder,
+                focusActions = actions,
+                includeClose = true
+            )
+
+            Log.d(TAG, "Mirror island posted for $packageName")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to show mirror island", e)
+        }
     }
 
-    fun cancelTestIsland(
+    fun cancelMirrorIsland(
         context: Context
     ) {
 
         try {
 
-            val manager =
-                context.getSystemService(
-                    NotificationManager::class.java
-                )
-
-            manager.cancel(
-                TEST_NOTIFICATION_ID
-            )
-
-            manager.cancel(
-                LIVE_NOTIFICATION_ID
-            )
-
-            manager.cancel(
-                DOWNLOAD_NOTIFICATION_ID
+            context.getSystemService(
+                NotificationManager::class.java
+            ).cancel(
+                MIRROR_LIVE_NOTIFICATION_ID
             )
 
         } catch (e: Exception) {
 
             Log.e(
                 TAG,
-                "Failed to cancel HyperIsland",
+                "Failed to cancel mirror island",
                 e
             )
         }
@@ -3650,9 +2574,9 @@ object SuperIslandManager {
                                 if (
                                     downloadTestPaused
                                 ) {
-                                    mediaIcon("play")
+                                    android.R.drawable.ic_media_play
                                 } else {
-                                    mediaIcon("pause")
+                                    android.R.drawable.ic_media_pause
                                 }
                         ),
 
@@ -3677,11 +2601,6 @@ object SuperIslandManager {
                 e
             )
         }
-    }
-
-    fun isDownloadTestRunning():
-            Boolean {
-        return downloadTestRunning
     }
 
     fun startDownloadTest(
@@ -3774,7 +2693,7 @@ object SuperIslandManager {
                     }
 
                 } catch (
-                    e: InterruptedException
+                    _: InterruptedException
                 ) {
 
                     Thread.currentThread()
@@ -3880,853 +2799,6 @@ object SuperIslandManager {
             Log.e(
                 TAG,
                 "Failed to cancel download notification",
-                e
-            )
-        }
-    }
-
-    fun addFocusAction(
-        context: Context,
-        builder: NotificationCompat.Builder,
-        actionKey: String,
-        title: String,
-        intent: Intent,
-        iconRes: Int =
-            android.R.drawable.ic_menu_info_details
-    ) {
-
-        try {
-
-            val requestCode =
-                actionKey.hashCode() and
-                        0x7fffffff
-
-            val pendingIntent =
-                PendingIntent.getBroadcast(
-                    context,
-                    requestCode,
-                    intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or
-                            PendingIntent.FLAG_IMMUTABLE
-                )
-
-            builder.addAction(
-                NotificationCompat
-                    .Action.Builder(
-                        iconRes,
-                        title,
-                        pendingIntent
-                    )
-                    .build()
-            )
-
-            val actionBundle =
-                Bundle().apply {
-
-                    putString(
-                        "key",
-                        actionKey
-                    )
-
-                    putString(
-                        "title",
-                        title
-                    )
-                }
-
-            val actionsBundle =
-                Bundle().apply {
-
-                    putBundle(
-                        actionKey,
-                        actionBundle
-                    )
-                }
-
-            builder.addExtras(
-                Bundle().apply {
-
-                    putBundle(
-                        EXTRA_FOCUS_ACTIONS,
-                        actionsBundle
-                    )
-                }
-            )
-
-        } catch (e: Exception) {
-
-            Log.e(
-                TAG,
-                "Failed to add Focus action: $actionKey",
-                e
-            )
-        }
-    }
-}
-
-class MediaSessionListenerService :
-    android.service.notification.NotificationListenerService() {
-
-    data class MediaAction(
-        val key: String,
-        val title: String,
-        val pendingIntent: PendingIntent
-    )
-
-    data class MediaSnapshot(
-        val packageName: String,
-        val appName: String,
-        val title: String,
-        val artist: String,
-        val position: Long,
-        val duration: Long,
-        val playing: Boolean,
-        val playbackState: Int,
-        val actions: List<MediaAction>,
-        val controller: MediaController?
-    )
-
-    companion object {
-
-        private const val TAG =
-            "MediaSessionListenerService"
-
-        @Volatile
-        var instance:
-                MediaSessionListenerService? =
-            null
-            private set
-    }
-
-    override fun onListenerConnected() {
-
-        super.onListenerConnected()
-
-        instance = this
-
-        Log.d(
-            TAG,
-            "NotificationListener connected"
-        )
-
-        Log.d(
-            TAG,
-            "Active notifications = " +
-                    try {
-                        activeNotifications.size
-                    } catch (_: Exception) {
-                        -1
-                    }
-        )
-
-        notifyMediaSessionChanged()
-    }
-
-    override fun onListenerDisconnected() {
-
-        Log.d(
-            TAG,
-            "NotificationListener disconnected"
-        )
-
-        if (instance === this) {
-            instance = null
-        }
-
-        super.onListenerDisconnected()
-    }
-
-    override fun onNotificationPosted(
-        sbn:
-        android.service.notification
-        .StatusBarNotification
-    ) {
-
-        inspectNotification(sbn)
-    }
-
-    override fun onNotificationPosted(
-        sbn:
-        android.service.notification
-        .StatusBarNotification,
-        rankingMap: RankingMap
-    ) {
-
-        inspectNotification(sbn)
-    }
-
-    override fun onNotificationRemoved(
-        sbn:
-        android.service.notification
-        .StatusBarNotification
-    ) {
-
-        Log.d(
-            TAG,
-            "Notification removed: " +
-                    sbn.packageName
-        )
-
-        notifyMediaSessionChanged()
-    }
-
-    private fun inspectNotification(
-        sbn:
-        android.service.notification
-        .StatusBarNotification
-    ) {
-
-        val notification =
-            sbn.notification
-                ?: return
-
-        val token =
-            getMediaSessionToken(
-                notification
-            )
-
-        val actions =
-            extractMediaActions(
-                notification
-            )
-
-        if (
-            token != null ||
-            actions.isNotEmpty() ||
-            notification.category ==
-            Notification.CATEGORY_TRANSPORT
-        ) {
-
-            Log.d(
-                TAG,
-                "Possible media notification: " +
-                        "package=${sbn.packageName}, " +
-                        "token=${token != null}, " +
-                        "actions=${actions.size}"
-            )
-
-            notifyMediaSessionChanged()
-        }
-    }
-
-    private fun getMediaSessionToken(
-        notification: Notification
-    ): MediaSession.Token? {
-
-        return try {
-
-            val extras =
-                notification.extras
-
-            if (Build.VERSION.SDK_INT >= 33) {
-
-                extras.getParcelable(
-                    Notification.EXTRA_MEDIA_SESSION,
-                    MediaSession.Token::class.java
-                )
-
-            } else {
-
-                @Suppress("DEPRECATION")
-
-                extras.getParcelable(
-                    Notification.EXTRA_MEDIA_SESSION
-                ) as? MediaSession.Token
-            }
-
-        } catch (e: Exception) {
-
-            Log.w(
-                TAG,
-                "Unable to read media session token",
-                e
-            )
-
-            null
-        }
-    }
-
-    private fun extractMediaActions(
-        notification: Notification
-    ): List<MediaAction> {
-
-        val result =
-            mutableListOf<MediaAction>()
-
-        val notificationActions =
-            notification.actions
-                ?: return result
-
-        for (
-        (index, action)
-        in notificationActions.withIndex()
-        ) {
-
-            val title =
-                action.title
-                    ?.toString()
-                    ?.trim()
-                    .orEmpty()
-
-            val lower =
-                title.lowercase(Locale.US)
-
-            val key =
-                when {
-
-                    lower.contains("previous") ||
-                            lower.contains("prev") ||
-                            lower.contains("back") ||
-                            lower.contains("before") ||
-                            lower.contains("ก่อนหน้า") ||
-                            lower.contains("上一") ->
-
-                        "previous"
-
-                    lower.contains("next") ||
-                            lower.contains("skip") ||
-                            lower.contains("forward") ||
-                            lower.contains("ถัดไป") ||
-                            lower.contains("下一") ->
-
-                        "next"
-
-                    lower.contains("pause") ||
-                            lower.contains("หยุด") ||
-                            lower.contains("暂停") ->
-
-                        "pause"
-
-                    lower.contains("play") ||
-                            lower.contains("resume") ||
-                            lower.contains("เล่น") ||
-                            lower.contains("播放") ->
-
-                        "play"
-
-                    title.isBlank() ->
-
-                        when (index) {
-
-                            0 ->
-                                "previous"
-
-                            1 ->
-                                "play"
-
-                            2 ->
-                                "next"
-
-                            else ->
-                                null
-                        }
-
-                    else ->
-                        null
-                }
-
-            if (
-                key != null &&
-                action.actionIntent != null
-            ) {
-
-                Log.d(
-                    TAG,
-                    "Media action detected: " +
-                            "$key / $title"
-                )
-
-                result.add(
-                    MediaAction(
-                        key = key,
-                        title = title,
-                        pendingIntent =
-                            action.actionIntent
-                    )
-                )
-            }
-        }
-
-        return result
-    }
-
-    fun findBestMediaSnapshot():
-            MediaSnapshot? {
-
-        return findBestMediaSnapshot(
-            preferredPackage = null
-        )
-    }
-
-    fun findBestMediaSnapshot(
-        preferredPackage: String?
-    ): MediaSnapshot? {
-
-        val notifications =
-            try {
-
-                activeNotifications
-
-            } catch (e: Exception) {
-
-                Log.e(
-                    TAG,
-                    "Unable to read active notifications",
-                    e
-                )
-
-                return null
-            }
-
-        var bestPreferredPlaying:
-                MediaSnapshot? = null
-
-        var bestPreferredPaused:
-                MediaSnapshot? = null
-
-        var bestPreferredUnknown:
-                MediaSnapshot? = null
-
-        var bestPlaying:
-                MediaSnapshot? = null
-
-        var bestPaused:
-                MediaSnapshot? = null
-
-        var bestUnknown:
-                MediaSnapshot? = null
-
-        for (sbn in notifications) {
-
-            val notification =
-                sbn.notification
-                    ?: continue
-
-            val token =
-                getMediaSessionToken(
-                    notification
-                )
-
-            val actions =
-                extractMediaActions(
-                    notification
-                )
-
-            val isTransportNotification =
-                notification.category ==
-                        Notification.CATEGORY_TRANSPORT
-
-            if (
-                token == null &&
-                actions.isEmpty() &&
-                !isTransportNotification
-            ) {
-                continue
-            }
-
-            val controller =
-                if (token != null) {
-
-                    try {
-
-                        MediaController(
-                            this,
-                            token
-                        )
-
-                    } catch (e: Exception) {
-
-                        Log.w(
-                            TAG,
-                            "Unable to create MediaController for " +
-                                    sbn.packageName,
-                            e
-                        )
-
-                        null
-                    }
-
-                } else {
-                    null
-                }
-
-            if (
-                controller != null &&
-                controller.packageName !=
-                sbn.packageName
-            ) {
-
-                Log.w(
-                    TAG,
-                    "Controller package mismatch: " +
-                            "notification=${sbn.packageName}, " +
-                            "controller=${controller.packageName}"
-                )
-            }
-
-            val metadata =
-                controller?.metadata
-
-            val state =
-                controller?.playbackState
-
-            val title =
-                metadata?.getString(
-                    android.media.MediaMetadata
-                        .METADATA_KEY_TITLE
-                )
-                    ?: notification.extras
-                        .getCharSequence(
-                            Notification.EXTRA_TITLE
-                        )
-                        ?.toString()
-                    ?: "Unknown track"
-
-            val artist =
-                metadata?.getString(
-                    android.media.MediaMetadata
-                        .METADATA_KEY_ARTIST
-                )
-                    ?: metadata?.getString(
-                        android.media.MediaMetadata
-                            .METADATA_KEY_ALBUM_ARTIST
-                    )
-                    ?: notification.extras
-                        .getCharSequence(
-                            Notification.EXTRA_TEXT
-                        )
-                        ?.toString()
-                    ?: ""
-
-            val duration =
-                metadata?.getLong(
-                    android.media.MediaMetadata
-                        .METADATA_KEY_DURATION
-                )
-                    ?: 0L
-
-            val position =
-                state?.position
-                    ?.coerceAtLeast(0L)
-                    ?: 0L
-
-            val playbackState =
-                state?.state
-                    ?: android.media.session
-                        .PlaybackState
-                        .STATE_NONE
-
-            val playing =
-                playbackState ==
-                        android.media.session
-                            .PlaybackState
-                            .STATE_PLAYING
-
-            val paused =
-                playbackState ==
-                        android.media.session
-                            .PlaybackState
-                            .STATE_PAUSED
-
-            val stateDescription =
-                when {
-
-                    playing ->
-                        "PLAYING"
-
-                    paused ->
-                        "PAUSED"
-
-                    playbackState ==
-                            android.media.session
-                                .PlaybackState
-                                .STATE_BUFFERING ->
-                        "BUFFERING"
-
-                    playbackState ==
-                            android.media.session
-                                .PlaybackState
-                                .STATE_CONNECTING ->
-                        "CONNECTING"
-
-                    playbackState ==
-                            android.media.session
-                                .PlaybackState
-                                .STATE_ERROR ->
-                        "ERROR"
-
-                    playbackState ==
-                            android.media.session
-                                .PlaybackState
-                                .STATE_STOPPED ->
-                        "STOPPED"
-
-                    else ->
-                        "UNKNOWN"
-                }
-
-            val appName =
-                try {
-
-                    packageManager
-                        .getApplicationLabel(
-                            packageManager
-                                .getApplicationInfo(
-                                    sbn.packageName,
-                                    0
-                                )
-                        )
-                        .toString()
-
-                } catch (_: Exception) {
-
-                    sbn.packageName
-                }
-
-            val snapshot =
-                MediaSnapshot(
-                    packageName =
-                        sbn.packageName,
-                    appName =
-                        appName,
-                    title =
-                        title,
-                    artist =
-                        artist,
-                    position =
-                        position,
-                    duration =
-                        duration,
-                    playing =
-                        playing,
-                    playbackState =
-                        playbackState,
-                    actions =
-                        actions,
-                    controller =
-                        controller
-                )
-
-            val isPreferred =
-                !preferredPackage.isNullOrBlank() &&
-                        sbn.packageName ==
-                        preferredPackage
-
-            Log.d(
-                TAG,
-                "Media candidate: " +
-                        "package=${snapshot.packageName}, " +
-                        "preferred=$isPreferred, " +
-                        "title=${snapshot.title}, " +
-                        "artist=${snapshot.artist}, " +
-                        "state=$stateDescription, " +
-                        "position=${snapshot.position}, " +
-                        "duration=${snapshot.duration}, " +
-                        "token=${token != null}, " +
-                        "actions=${snapshot.actions.size}"
-            )
-
-            if (isPreferred) {
-
-                if (playing) {
-
-                    if (
-                        bestPreferredPlaying == null
-                    ) {
-                        bestPreferredPlaying =
-                            snapshot
-                    }
-
-                } else if (paused) {
-
-                    if (
-                        bestPreferredPaused == null
-                    ) {
-                        bestPreferredPaused =
-                            snapshot
-                    }
-
-                } else {
-
-                    if (
-                        bestPreferredUnknown == null
-                    ) {
-                        bestPreferredUnknown =
-                            snapshot
-                    }
-                }
-            }
-
-            if (playing) {
-
-                if (
-                    bestPlaying == null
-                ) {
-                    bestPlaying = snapshot
-                }
-
-                continue
-            }
-
-            if (paused) {
-
-                if (
-                    bestPaused == null
-                ) {
-                    bestPaused = snapshot
-                }
-
-                continue
-            }
-
-            if (
-                bestUnknown == null
-            ) {
-                bestUnknown = snapshot
-            }
-        }
-
-        return bestPreferredPlaying
-            ?: bestPreferredPaused
-            ?: bestPreferredUnknown
-            ?: bestPlaying
-            ?: bestPaused
-            ?: bestUnknown
-    }
-
-    fun findBestMediaController():
-            MediaController? {
-
-        return findBestMediaSnapshot()
-            ?.controller
-    }
-
-    fun findBestMediaController(
-        preferredPackage: String?
-    ): MediaController? {
-
-        return findBestMediaSnapshot(
-            preferredPackage
-        )?.controller
-    }
-
-    fun performCachedMediaAction(
-        action: String
-    ): Boolean {
-
-        return performCachedMediaAction(
-            action,
-            null
-        )
-    }
-
-    fun performCachedMediaAction(
-        action: String,
-        preferredPackage: String?
-    ): Boolean {
-
-        if (
-            action ==
-            SuperIslandManager.ACTION_MEDIA_PLAY ||
-            action ==
-            SuperIslandManager.ACTION_MEDIA_PAUSE
-        ) {
-
-            return false
-        }
-
-        val snapshot =
-            findBestMediaSnapshot(
-                preferredPackage
-            )
-                ?: return false
-
-        val key =
-            actionToKey(action)
-
-        val mediaAction =
-            snapshot.actions.firstOrNull {
-                it.key == key
-            }
-                ?: return false
-
-        return try {
-
-            mediaAction.pendingIntent.send()
-
-            Log.d(
-                TAG,
-                "Sent ORIGINAL media PendingIntent: " +
-                        "${snapshot.packageName} / $key"
-            )
-
-            true
-
-        } catch (e: Exception) {
-
-            Log.e(
-                TAG,
-                "Unable to send original media action: " +
-                        key,
-                e
-            )
-
-            false
-        }
-    }
-
-    private fun actionToKey(
-        action: String
-    ): String {
-
-        return when (action) {
-
-            SuperIslandManager.ACTION_MEDIA_PLAY ->
-                "play"
-
-            SuperIslandManager.ACTION_MEDIA_PAUSE ->
-                "pause"
-
-            SuperIslandManager.ACTION_MEDIA_NEXT ->
-                "next"
-
-            SuperIslandManager.ACTION_MEDIA_PREVIOUS ->
-                "previous"
-
-            else ->
-                action
-        }
-    }
-
-    private fun notifyMediaSessionChanged() {
-
-        try {
-
-            android.os.Handler(
-                android.os.Looper.getMainLooper()
-            ).postDelayed(
-                {
-
-                    if (
-                        SuperIslandManager
-                            .isLiveUpdatesRunning()
-                    ) {
-
-                        SuperIslandManager
-                            .refreshMediaNow(
-                                applicationContext
-                            )
-                    }
-
-                },
-                250L
-            )
-
-        } catch (e: Exception) {
-
-            Log.e(
-                TAG,
-                "Failed to refresh media session",
                 e
             )
         }

@@ -1,6 +1,5 @@
 package com.kuromify.kuromix.ui
 
-import android.content.Intent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -24,8 +23,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kuromify.kuromix.data.WhitelistManager
 import com.kuromify.kuromix.manager.RearDisplayManager
+import com.kuromify.kuromix.notification.SuperIslandManager
 import com.kuromify.kuromix.root.RootShell
-import com.kuromify.kuromix.service.RearDisplayService
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
@@ -56,8 +55,15 @@ fun RearScreen(
     var rearDisplayId by remember { mutableStateOf(rearDisplays.primaryRearDisplayId()) }
     val mirrorModuleEnabled by whitelistManager.mirrorModuleEnabledFlow.collectAsState(initial = false)
 
+    // Read once on enter; refreshed when the screen is recomposed after
+    // the user toggles HyperIsland elsewhere.
+    var hyperIslandEnabled by remember {
+        mutableStateOf(SuperIslandManager.isHyperIslandHookEnabled(context))
+    }
+
     LaunchedEffect(Unit) {
         rearDisplayId = rearDisplays.primaryRearDisplayId()
+        hyperIslandEnabled = SuperIslandManager.isHyperIslandHookEnabled(context)
     }
 
     val scrollBehavior = MiuixScrollBehavior()
@@ -101,15 +107,45 @@ fun RearScreen(
                             onCheckedChange = { enabled ->
                                 scope.launch {
                                     whitelistManager.setMirrorModuleEnabled(enabled)
+
+                                    // These two properties are the entire
+                                    // persistence mechanism now. The LSPosed
+                                    // hook in KuroMixHook reacts to them in
+                                    // system_server, keeping the rear display
+                                    // awake and the mirror process alive.
+                                    // No foreground service is needed.
                                     RootShell.setKeepAwakeProp(enabled)
                                     RootShell.setAntiKillProp(enabled)
-                                    val intent = Intent(context, RearDisplayService::class.java)
-                                    if (enabled) {
-                                        context.startForegroundService(intent)
-                                    } else {
-                                        context.stopService(intent)
-                                    }
                                 }
+                            }
+                        )
+                    }
+                }
+
+                item {
+                    SmallTitle(text = "NOTIFICATIONS")
+                    Card(modifier = Modifier.padding(horizontal = 12.dp)) {
+                        BasicComponent(
+                            title = if (hyperIslandEnabled) {
+                                "HyperIsland is enabled"
+                            } else {
+                                "HyperIsland is disabled"
+                            },
+                            summary = if (hyperIslandEnabled) {
+                                "A HyperIsland card will appear for the " +
+                                        "mirrored app, showing its name and " +
+                                        "a Stop action."
+                            } else {
+                                "Enable HyperIsland in the HyperIsland " +
+                                        "screen to show a card for the " +
+                                        "mirrored app. Until then, no " +
+                                        "notification will appear."
+                            },
+                            onClick = {
+                                // Refresh the state when the user taps,
+                                // in case they toggled it in the other screen.
+                                hyperIslandEnabled =
+                                    SuperIslandManager.isHyperIslandHookEnabled(context)
                             }
                         )
                     }
@@ -120,14 +156,17 @@ fun RearScreen(
                     Card(modifier = Modifier.padding(horizontal = 12.dp)) {
                         BasicComponent(
                             title = "Rear Display",
-                            summary = if (rearDisplayId != null) "Detected (ID: $rearDisplayId)" else "Not Detected",
-                            onClick = { rearDisplayId = rearDisplays.primaryRearDisplayId() }
+                            summary = if (rearDisplayId != null) {
+                                "Detected (ID: $rearDisplayId)"
+                            } else {
+                                "Not Detected"
+                            },
+                            onClick = {
+                                rearDisplayId = rearDisplays.primaryRearDisplayId()
+                            }
                         )
                     }
                 }
-
-                // TODO: break Keep Awake / Anti-Kill into individual toggles here
-                // if WhitelistManager exposes separate flows for them.
             }
 
             VerticalScrollBar(
